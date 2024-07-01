@@ -1,4 +1,4 @@
-.. Copyright (C) 2001-2023 Artifex Software, Inc.
+.. Copyright (C) 2001-2024 Artifex Software, Inc.
 .. All Rights Reserved.
 
 ----
@@ -233,6 +233,20 @@ and setting their properties.
         var val = pdfObj.asIndirect();
 
 
+.. method:: isFilespec()
+
+    Is the object a file specification (or a reference to a file specification).
+
+    :return: `Boolean`.
+
+
+    |example_tag|
+
+    .. code-block:: javascript
+
+        var val = pdfObj.isFilespec();
+
+
 
 
 :title:`PDF` streams
@@ -364,6 +378,18 @@ Primitive :title:`PDF` objects such as booleans, names, and numbers can usually 
 
         var val = pdfObj.asBoolean();
 
+.. method:: isInteger()
+
+    Returns *true* if the object is an `Integer` object.
+
+    :return: `Boolean`.
+
+    |example_tag|
+
+    .. code-block:: javascript
+
+        var val = pdfObj.isInteger();
+
 .. method:: isNumber()
 
     Returns *true* if the object is a `Number` object.
@@ -411,6 +437,18 @@ Primitive :title:`PDF` objects such as booleans, names, and numbers can usually 
     .. code-block:: javascript
 
         var val = pdfObj.asName();
+
+.. method:: isReal()
+
+    Returns *true* if the object is a `Real` object.
+
+    :return: `Boolean`.
+
+    |example_tag|
+
+    .. code-block:: javascript
+
+        var val = pdfObj.isReal();
 
 .. method:: isString()
 

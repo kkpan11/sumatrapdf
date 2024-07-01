@@ -78,10 +78,11 @@ void FindFirst(MainWindow* win) {
     // if search edit was empty
     // auto isEditEmpty = Edit_GetTextLength(win->hwndFindEdit) == 0
     if (dm->textSelection->result.len > 0) {
-        AutoFreeWstr selection(dm->textSelection->ExtractText(" "));
+        AutoFreeWStr selection(dm->textSelection->ExtractText(" "));
         str::NormalizeWSInPlace(selection);
         if (!str::IsEmpty(selection.Get())) {
-            HwndSetText(win->hwndFindEdit, selection);
+            TempStr s = ToUtf8Temp(selection);
+            HwndSetText(win->hwndFindEdit, s);
             Edit_SetModify(win->hwndFindEdit, TRUE);
         }
     }
@@ -96,11 +97,11 @@ void FindFirst(MainWindow* win) {
         return;
     }
 
-    WCHAR* previousFind = HwndGetTextWTemp(win->hwndFindEdit);
+    TempStr previousFind = HwndGetTextTemp(win->hwndFindEdit);
     WORD state = (WORD)SendMessageW(win->hwndToolbar, TB_GETSTATE, CmdFindMatch, 0);
     bool matchCase = (state & TBSTATE_CHECKED) != 0;
 
-    AutoFreeWstr findString(Dialog_Find(win->hwndFrame, previousFind, &matchCase));
+    AutoFreeStr findString(Dialog_Find(win->hwndFrame, previousFind, &matchCase));
     if (!findString) {
         return;
     }
@@ -158,13 +159,14 @@ void FindSelection(MainWindow* win, TextSearchDirection direction) {
         return;
     }
 
-    AutoFreeWstr selection(dm->textSelection->ExtractText(" "));
+    AutoFreeWStr selection(dm->textSelection->ExtractText(" "));
     str::NormalizeWSInPlace(selection);
     if (str::IsEmpty(selection.Get())) {
         return;
     }
 
-    HwndSetText(win->hwndFindEdit, selection);
+    TempStr s = ToUtf8Temp(selection);
+    HwndSetText(win->hwndFindEdit, s);
     AbortFinding(win, false); // cancel "find as you type"
     Edit_SetModify(win->hwndFindEdit, FALSE);
     dm->textSearch->SetLastResult(dm->textSelection);
@@ -173,7 +175,7 @@ void FindSelection(MainWindow* win, TextSearchDirection direction) {
 }
 
 static void ShowSearchResult(MainWindow* win, TextSel* result, bool addNavPt) {
-    CrashIf(0 == result->len || !result->pages || !result->rects);
+    ReportIf(0 == result->len || !result->pages || !result->rects);
     if (0 == result->len || !result->pages || !result->rects) {
         return;
     }
@@ -209,13 +211,13 @@ struct FindThreadData : public ProgressUpdateUI {
     MainWindow* win = nullptr;
     TextSearchDirection direction{TextSearchDirection::Forward};
     bool wasModified = false;
-    AutoFreeWstr text;
+    AutoFreeWStr text;
     HANDLE thread = nullptr;
 
     FindThreadData(MainWindow* win, TextSearchDirection direction, const char* text, bool wasModified) {
         this->win = win;
         this->direction = direction;
-        this->text = ToWstr(text);
+        this->text = ToWStr(text);
         this->wasModified = wasModified;
     }
     ~FindThreadData() override {
@@ -272,7 +274,7 @@ struct FindThreadData : public ProgressUpdateUI {
     }
 
     void UpdateProgress(int current, int total) override {
-        uitask::Post([this, current, total] {
+        uitask::Post(TaskFindUpdateStatus, [this, current, total] {
             auto wnd = GetNotificationForGroup(win->hwndCanvas, kNotifGroupFindProgress);
             if (!wnd || WasCanceled()) {
                 return;
@@ -315,7 +317,7 @@ static void FindEndTask(MainWindow* win, FindThreadData* ftd, TextSel* textSel, 
 
 static DWORD WINAPI FindThread(LPVOID data) {
     FindThreadData* ftd = (FindThreadData*)data;
-    CrashIf(!(ftd && ftd->win && ftd->win->ctrl && ftd->win->ctrl->AsFixed()));
+    ReportIf(!(ftd && ftd->win && ftd->win->ctrl && ftd->win->ctrl->AsFixed()));
     MainWindow* win = ftd->win;
     DisplayModel* dm = win->AsFixed();
     auto textSearch = dm->textSearch;
@@ -354,24 +356,31 @@ static DWORD WINAPI FindThread(LPVOID data) {
     }
 
     if (!win->findCanceled && rect) {
-        uitask::Post([=] { FindEndTask(win, ftd, rect, ftd->wasModified, loopedAround); });
+        uitask::Post(TaskFindEnd1, [=] { FindEndTask(win, ftd, rect, ftd->wasModified, loopedAround); });
     } else {
-        uitask::Post([=] { FindEndTask(win, ftd, nullptr, win->findCanceled, false); });
+        uitask::Post(TaskFindEnd2, [=] { FindEndTask(win, ftd, nullptr, win->findCanceled, false); });
     }
     DestroyTempAllocator();
     return 0;
 }
 
-void AbortFinding(MainWindow* win, bool hideMessage) {
+// returns true if did abort a thread or hidden the notification
+bool AbortFinding(MainWindow* win, bool hideMessage) {
+    bool res = false;
     if (win->findThread) {
+        res = true;
         win->findCanceled = true;
         WaitForSingleObject(win->findThread, INFINITE);
     }
     win->findCanceled = false;
 
     if (hideMessage) {
-        RemoveNotificationsForGroup(win->hwndCanvas, kNotifGroupFindProgress);
+        bool didRemove = RemoveNotificationsForGroup(win->hwndCanvas, kNotifGroupFindProgress);
+        if (didRemove) {
+            res = true;
+        }
     }
+    return res;
 }
 
 // wasModified
@@ -393,7 +402,7 @@ void FindTextOnThread(MainWindow* win, TextSearchDirection direction, const char
 
 // TODO: for https://github.com/sumatrapdfreader/sumatrapdf/issues/2655
 char* ReverseTextTemp(char* s) {
-    WCHAR* ws = ToWStrTemp(s);
+    TempWStr ws = ToWStrTemp(s);
     int n = str::Leni(ws);
     for (int i = 0; i < n / 2; i++) {
         WCHAR c1 = ws[i];
@@ -414,7 +423,7 @@ void FindTextOnThread(MainWindow* win, TextSearchDirection direction, bool showP
 }
 
 void PaintForwardSearchMark(MainWindow* win, HDC hdc) {
-    CrashIf(!win->AsFixed());
+    ReportIf(!win->AsFixed());
     DisplayModel* dm = win->AsFixed();
     int pageNo = win->fwdSearchMark.page;
     PageInfo* pageInfo = dm->GetPageInfo(pageNo);
@@ -543,7 +552,7 @@ bool OnInverseSearch(MainWindow* win, int x, int y) {
 // Show the result of a PDF forward-search synchronization (initiated by a DDE command)
 void ShowForwardSearchResult(MainWindow* win, const char* fileName, int line, int /* col */, int ret, int page,
                              Vec<Rect>& rects) {
-    CrashIf(!win->AsFixed());
+    ReportIf(!win->AsFixed());
     DisplayModel* dm = win->AsFixed();
     win->fwdSearchMark.rects.Reset();
     const PageInfo* pi = dm->GetPageInfo(page);
@@ -750,8 +759,9 @@ static const char* HandleOpenCmd(const char* cmd, bool* ack) {
     if (!next) {
         return nullptr;
     }
-    logf("HandleOpenCmd: '%s', newWindow: %d, setFocus: %d, forceRefresh: %d, inCurrentTab: %d\n", filePath.Get(),
-         newWindow, setFocus, forceRefresh, inCurrentTab);
+    bool isCtrl = IsCtrlPressed();
+    logf("HandleOpenCmd: '%s', newWindow: %d, setFocus: %d, forceRefresh: %d, inCurrentTab: %d, isCtrl: %d\n",
+         filePath.CStr(), newWindow, setFocus, forceRefresh, inCurrentTab, isCtrl);
     // on startup this is called while LoadDocument is in progress, which causes
     // all sort of mayhem. Queue files to be loaded in a sequence
     if (gIsStartup) {
@@ -826,10 +836,11 @@ static const char* HandleOpenCmd(const char* cmd, bool* ack) {
 
     if (doLoad) {
         LoadArgs args(filePath, win);
-        args.activateExisting = !IsCtrlPressed();
+        args.activateExisting = !isCtrl;
         if (newWindow) {
             args.activateExisting = false;
         }
+        logf("HandleOpenCmd: calling LoadDocument(), activateExisting: %d\n", (int)args.activateExisting);
         win = LoadDocument(&args);
         if (!win) {
             logf("HandleOpenCmd: LoadDocument() for '%s' failed\n", filePath.Get());
@@ -839,7 +850,7 @@ static const char* HandleOpenCmd(const char* cmd, bool* ack) {
     // TODO: not sure why this triggers. Seems to happen when opening multiple files
     // via Open menu in explorer. The first one is opened via cmd-line arg, the
     // rest via DDE.
-    // CrashIf(win && win->IsAboutWindow());
+    // ReportIf(win && win->IsAboutWindow());
     if (win) {
         if (forceRefresh) {
             logf("HandleOpenCmd: forceRefresh != 0 so calling ReloadDocument()\n");
@@ -1167,7 +1178,7 @@ LRESULT OnDDERequest(HWND hwnd, WPARAM wp, LPARAM lp) {
         data = (void*)tmp;
         cbData = (str::Leni(tmp) + 1) * 2;
     } else {
-        CrashIf(true);
+        ReportIf(true);
         return 0;
     }
 

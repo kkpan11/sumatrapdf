@@ -54,7 +54,7 @@ class EngineMulti : public EngineBase {
     PageText ExtractPageText(int pageNo) override;
 
     bool HasClipOptimizations(int pageNo) override;
-    TempStr GetPropertyTemp(DocumentProperty prop) override;
+    TempStr GetPropertyTemp(const char* name) override;
 
     bool BenchLoadPage(int pageNo) override;
 
@@ -99,7 +99,7 @@ EngineMulti::~EngineMulti() {
 
 EngineBase* EngineMulti::Clone() {
     // TODO: support CreateFromFiles()
-    CrashIf(true);
+    ReportIf(true);
     return nullptr;
 }
 
@@ -141,7 +141,7 @@ bool EngineMulti::HasClipOptimizations(int pageNo) {
     return e->HasClipOptimizations(pageNo);
 }
 
-TempStr EngineMulti::GetPropertyTemp(DocumentProperty prop) {
+TempStr EngineMulti::GetPropertyTemp(const char* name) {
     return nullptr;
 }
 
@@ -162,7 +162,7 @@ IPageElement* EngineMulti::GetElementAtPos(int pageNo, PointF pt) {
 }
 
 RenderedBitmap* EngineMulti::GetImageForPageElement(IPageElement* ipel) {
-    CrashIf(kindPageElementImage != ipel->GetKind());
+    ReportIf(kindPageElementImage != ipel->GetKind());
     PageElementImage* pel = (PageElementImage*)ipel;
     EngineBase* e = PageToEngine(pel->pageNo);
     return e->GetImageForPageElement(pel);
@@ -215,7 +215,7 @@ static void updateTocItemsPageNo(TocItem* ti, int nPageNoAdd, bool root) {
 }
 
 TocTree* EngineMulti::GetToc() {
-    CrashIf(!tocTree);
+    ReportIf(!tocTree);
     return tocTree;
 }
 
@@ -338,7 +338,7 @@ bool EngineMulti::LoadFromFiles(const char* dir, StrVec& files) {
     int n = files.Size();
     TocItem* tocFiles = nullptr;
     for (int i = 0; i < n; i++) {
-        char* path = files.at(i);
+        char* path = files.At(i);
         EngineBase* engine = CreateEngineFromFile(path, nullptr, true);
         if (!engine) {
             continue;
@@ -388,14 +388,14 @@ void EngineMulti::UpdatePagesForEngines(Vec<EngineInfo>& enginesInfo) {
         nTotalPages += nPages;
     }
     pageCount = nTotalPages;
-    CrashIf((size_t)pageCount != pageToEngine.size());
+    ReportIf((size_t)pageCount != pageToEngine.size());
 
     auto verifyPages = [&nTotalPages](TocItem* ti) -> bool {
         if (!IsPageNavigationDestination(ti->dest)) {
             return true;
         }
         int pageNo = ti->pageNo;
-        CrashIf(pageNo > nTotalPages);
+        ReportIf(pageNo > nTotalPages);
         return true;
     };
 
@@ -429,7 +429,7 @@ static SeqStrings gSupportedExtsForMulti =
     ".jpg\0.jpeg\0.tga\0.gif\0.avif\0.heic\0";
 // clang-format on
 
-static bool isSupportedForMultis(const char* path) {
+static bool isSupportedForMultis(WIN32_FIND_DATAW*, const char* path) {
     char* ext = path::GetExtTemp(path);
     int idx = seqstrings::StrToIdxIS(gSupportedExtsForMulti, ext);
     return idx >= 0;

@@ -32,8 +32,6 @@ constexpr COLORREF kColWhite = 0xFFFFFF;
 // #define kColWhiteish 0xEBEBF9
 // #define kColDarkGray 0x424242
 
-constexpr const int kThemeCount = 3;
-
 struct MainWindowStyle {
     // Background color of recently added, about, and properties menus
     COLORREF backgroundColor;
@@ -178,11 +176,13 @@ static Theme gThemeDarker = {
 };
 // clang-format on
 
-static Theme* gThemes[kThemeCount] = {
+static Theme* gThemes[] = {
     &gThemeLight,
     &gThemeDark,
     &gThemeDarker,
 };
+
+constexpr const int kThemeCount = dimofi(gThemes);
 
 Theme* gCurrentTheme = &gThemeLight;
 static int currentThemeIndex = 0;
@@ -194,7 +194,10 @@ int GetCurrentThemeIndex() {
 extern void UpdateAfterThemeChange();
 
 void SetThemeByIndex(int themeIdx) {
-    CrashIf((themeIdx < 0) || (themeIdx >= kThemeCount));
+    ReportIf((themeIdx < 0) || (themeIdx >= kThemeCount));
+    if (themeIdx >= kThemeCount) {
+        themeIdx = 0;
+    }
     currentThemeIndex = themeIdx;
     gCurrentTheme = gThemes[currentThemeIndex];
     str::ReplaceWithCopy(&gGlobalPrefs->theme, gCurrentTheme->name);

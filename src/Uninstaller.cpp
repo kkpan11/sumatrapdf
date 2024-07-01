@@ -16,6 +16,7 @@
 #include "Settings.h"
 #include "SumatraConfig.h"
 #include "Flags.h"
+#include "Annotation.h"
 #include "SumatraPDF.h"
 #include "Installer.h"
 #include "AppTools.h"
@@ -75,7 +76,7 @@ static void RemoveInstalledFiles() {
     for (size_t i = 0; i < n; i++) {
         const char* s = gInstalledFiles[i];
         auto relPath = ToWStrTemp(s);
-        AutoFreeWstr path = path::Join(dir, relPath);
+        AutoFreeWStr path = path::Join(dir, relPath);
         BOOL ok = file::Delete(path);
         if (ok) {
             logf(L"RemoveInstalledFiles(): removed '%s'\n", path.Get());
@@ -126,29 +127,29 @@ static DWORD WINAPI UninstallerThread(void*) {
     return 0;
 }
 
-static void OnButtonUninstall() {
+static void OnButtonUninstall(void*) {
     if (!CheckInstallUninstallPossible()) {
         return;
     }
 
     // disable the button during uninstallation
     gButtonUninstaller->SetIsEnabled(false);
-    SetMsg(_TR("Uninstallation in progress..."), COLOR_MSG_INSTALLATION);
+    SetMsg(_TRA("Uninstallation in progress..."), COLOR_MSG_INSTALLATION);
     HwndInvalidate(gHwndFrame);
 
     hThread = CreateThread(nullptr, 0, UninstallerThread, nullptr, 0, nullptr);
 }
 
-static void OnButtonExit() {
+static void OnButtonExit(void*) {
     SendMessageW(gHwndFrame, WM_CLOSE, 0, 0);
 }
 
 void OnUninstallationFinished() {
     delete gButtonUninstaller;
     gButtonUninstaller = nullptr;
-    gButtonExit = CreateDefaultButton(gHwndFrame, _TR("Close"));
-    gButtonExit->onClicked = OnButtonExit;
-    SetMsg(_TR("SumatraPDF has been uninstalled."), gMsgError ? COLOR_MSG_FAILED : COLOR_MSG_OK);
+    gButtonExit = CreateDefaultButton(gHwndFrame, _TRA("Close"));
+    gButtonExit->onClicked = mkFunc0<void>(OnButtonExit, nullptr);
+    SetMsg(_TRA("SumatraPDF has been uninstalled."), gMsgError ? COLOR_MSG_FAILED : COLOR_MSG_OK);
     gMsgError = gFirstError;
     HwndInvalidate(gHwndFrame);
 
@@ -158,7 +159,7 @@ void OnUninstallationFinished() {
 static bool UninstallerOnWmCommand(WPARAM wp) {
     switch (LOWORD(wp)) {
         case IDCANCEL:
-            OnButtonExit();
+            OnButtonExit(nullptr);
             break;
 
         default:
@@ -183,8 +184,8 @@ static void CreateUninstallerWindow() {
     DpiScale(gHwndFrame, dx, dy);
     HwndResizeClientSize(gHwndFrame, dx, dy);
 
-    gButtonUninstaller = CreateDefaultButton(gHwndFrame, _TR("Uninstall SumatraPDF"));
-    gButtonUninstaller->onClicked = OnButtonUninstall;
+    gButtonUninstaller = CreateDefaultButton(gHwndFrame, _TRA("Uninstall SumatraPDF"));
+    gButtonUninstaller->onClicked = mkFunc0<void>(OnButtonUninstall, nullptr);
 }
 
 static void ShowUsage() {
@@ -196,7 +197,7 @@ static void ShowUsage() {
     /s\tuninstalls %s silently (without user interaction).\n\
     /d\tchanges the directory from where %s will be uninstalled.",
         kAppName, kAppName);
-    MessageBoxA(nullptr, msg, caption, MB_OK | MB_ICONINFORMATION);
+    MsgBox(nullptr, msg, caption, MB_OK | MB_ICONINFORMATION);
 }
 
 static LRESULT CALLBACK WndProcUninstallerFrame(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
@@ -263,7 +264,7 @@ static bool RegisterWinClass() {
     wcex.hIcon = LoadIconW(h, iconName);
 
     ATOM atom = RegisterClassExW(&wcex);
-    CrashIf(!atom);
+    ReportIf(!atom);
     return atom != 0;
 }
 
@@ -321,7 +322,7 @@ static int RunApp() {
 static char* GetUninstallerPathInTemp() {
     WCHAR tempDir[MAX_PATH + 14]{};
     DWORD res = ::GetTempPathW(dimof(tempDir), tempDir);
-    CrashAlwaysIf(res == 0 || res >= dimof(tempDir));
+    ReportIf(res == 0 || res >= dimof(tempDir));
     char* dirA = ToUtf8Temp(tempDir);
     return path::Join(dirA, "Sumatra-Uninstaller.exe");
 }
@@ -380,7 +381,7 @@ static void RelaunchMaybeElevatedFromTempDirectory(Flags* cli) {
 static char* GetSelfDeleteBatchPathInTemp() {
     WCHAR tempDir[MAX_PATH + 14]{};
     DWORD res = ::GetTempPathW(dimof(tempDir), tempDir);
-    CrashAlwaysIf(res == 0 || res >= dimof(tempDir));
+    ReportIf(res == 0 || res >= dimof(tempDir));
     char* tempDirA = ToUtf8Temp(tempDir);
     return path::JoinTemp(tempDirA, "sumatra-self-del.bat");
 }
@@ -437,9 +438,9 @@ int RunUninstaller() {
     auto installerExists = file::Exists(exePath);
     if (!installerExists) {
         log("Uninstaller executable doesn't exist\n");
-        const WCHAR* caption = _TR("Uninstallation failed");
-        const WCHAR* msg = _TR("SumatraPDF installation not found.");
-        MessageBox(nullptr, msg, caption, MB_ICONEXCLAMATION | MB_OK);
+        auto caption = _TRA("Uninstallation failed");
+        auto msg = _TRA("SumatraPDF installation not found.");
+        MsgBox(nullptr, msg, caption, MB_ICONEXCLAMATION | MB_OK);
         goto Exit;
     }
 
@@ -460,7 +461,7 @@ int RunUninstaller() {
         log("Previewer is installed\n");
     }
 
-    gDefaultMsg = _TR("Are you sure you want to uninstall SumatraPDF?");
+    gDefaultMsg = _TRA("Are you sure you want to uninstall SumatraPDF?");
 
     // unregister search filter and previewer to reduce
     // possibility of blocking

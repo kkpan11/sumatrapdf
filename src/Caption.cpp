@@ -13,6 +13,7 @@
 #include "AppColors.h"
 #include "GlobalPrefs.h"
 #include "ProgressUpdateUI.h"
+#include "Annotation.h"
 #include "SumatraPDF.h"
 #include "MainWindow.h"
 #include "Caption.h"
@@ -833,8 +834,10 @@ LRESULT CustomCaptionFrameProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, bool* 
                     // TODO: this is probably not needed anymore after we removed &Window sub-menu
                     // and added app icon
                     // map space to the accelerator of the Window menu
-                    if (str::FindChar(_TR("&Window"), '&')) {
-                        gMenuAccelPressed = *(str::FindChar(_TR("&Window"), '&') + 1);
+                    auto pos = str::FindChar(_TRA("&Window"), '&');
+                    if (pos) {
+                        char c = pos[1];
+                        gMenuAccelPressed = (WCHAR)c;
                     }
                 }
                 PostMessageW(win->hwndCaption, WM_COMMAND, MAKELONG(BTN_ID_FIRST + CB_MENU, BN_CLICKED), 0);
@@ -931,7 +934,7 @@ static void MenuBarAsPopupMenu(MainWindow* win, int x, int y) {
             continue;
         }
         mii.cch++;
-        AutoFreeWstr subMenuName(AllocArray<WCHAR>(mii.cch));
+        AutoFreeWStr subMenuName(AllocArray<WCHAR>(mii.cch));
         mii.dwTypeData = subMenuName;
         GetMenuItemInfo(win->menu, i, TRUE, &mii);
         AppendMenuW(popup, MF_POPUP | MF_STRING, (UINT_PTR)mii.hSubMenu, subMenuName);

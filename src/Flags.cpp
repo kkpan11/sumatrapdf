@@ -18,6 +18,7 @@
 #define ARGS(V)                                  \
     V(Silent, "s")                               \
     V(Silent2, "silent")                         \
+    V(FastInstall, "fast-install")               \
     V(PrintToDefault, "print-to-default")        \
     V(PrintDialog, "print-dialog")               \
     V(Help, "h")                                 \
@@ -83,7 +84,6 @@
     V(AllUsers, "all-users")                     \
     V(AllUsers2, "allusers")                     \
     V(RunInstallNow, "run-install-now")          \
-    V(TestBrowser, "test-browser")               \
     V(Adobe, "a")                                \
     V(DDE, "dde")                                \
     V(SetColorRange, "set-color-range")
@@ -111,7 +111,7 @@ static void EnumeratePrinters() {
     }
     if (ok == 0 || !info5Arr) {
         out.AppendFmt("Call to EnumPrinters failed with error %#x", GetLastError());
-        MessageBoxA(nullptr, out.Get(), "SumatraPDF - EnumeratePrinters", MB_OK | MB_ICONERROR);
+        MsgBox(nullptr, out.CStr(), "SumatraPDF - EnumeratePrinters", MB_OK | MB_ICONERROR);
         free(info5Arr);
         return;
     }
@@ -128,7 +128,7 @@ static void EnumeratePrinters() {
 
         DWORD bins = DeviceCapabilitiesW(nameW, portW, DC_BINS, nullptr, nullptr);
         DWORD binNames = DeviceCapabilitiesW(nameW, portW, DC_BINNAMES, nullptr, nullptr);
-        CrashIf(bins != binNames);
+        ReportIf(bins != binNames);
         if (0 == bins) {
             out.Append(" - no paper bins available\n");
         } else if (bins == (DWORD)-1) {
@@ -146,7 +146,7 @@ static void EnumeratePrinters() {
         }
     }
     free(info5Arr);
-    MessageBoxA(nullptr, out.Get(), "SumatraPDF - EnumeratePrinters", MB_OK | MB_ICONINFORMATION);
+    MsgBox(nullptr, out.CStr(), "SumatraPDF - EnumeratePrinters", MB_OK | MB_ICONINFORMATION);
 }
 
 // parses a list of page ranges such as 1,3-5,7- (i..e all but pages 2 and 6)
@@ -431,6 +431,10 @@ void ParseFlags(const WCHAR* cmdLine, Flags& i) {
             i.install = true;
             continue;
         }
+        if (arg == Arg::FastInstall) {
+            i.fastInstall = true;
+            continue;
+        }
         if (arg == Arg::UnInstall) {
             i.uninstall = true;
             continue;
@@ -473,10 +477,6 @@ void ParseFlags(const WCHAR* cmdLine, Flags& i) {
         }
         if (arg == Arg::RunInstallNow) {
             i.runInstallNow = true;
-            continue;
-        }
-        if (arg == Arg::TestBrowser) {
-            i.testBrowser = true;
             continue;
         }
         if ((arg == Arg::AllUsers) || (arg == Arg::AllUsers2)) {
@@ -588,9 +588,9 @@ void ParseFlags(const WCHAR* cmdLine, Flags& i) {
         if (arg == Arg::StressTest) {
             // -stress-test <file or dir path> [<file filter>] [<page/file range(s)>] [<cycle
             // count>x]
-            // e.g. -stress-test file.pdf  for rendering file.pdf
+            // e.g. -stress-test file.pdf 25x    for rendering file.pdf 25 times
             //      -stress-test file.pdf 1-3  render only pages 1, 2 and 3 of file.pdf
-            //      -stress-test dir 301-    render all files in dir, skipping first 300
+            //      -stress-test dir 301-  2x  render all files in dir twice, skipping first 300
             //      -stress-test dir *.pdf;*.xps  render all files in dir that are either PDF or XPS
             i.stressTestPath = str::Dup(param);
             const char* s = args.AdditionalParam(1);
@@ -601,6 +601,11 @@ void ParseFlags(const WCHAR* cmdLine, Flags& i) {
             if (s && IsValidPageRange(s)) {
                 i.stressTestRanges = str::Dup(args.EatParam());
                 s = args.AdditionalParam(1);
+            }
+            int num;
+            if (s && str::Parse(s, "%dx%$", &num) && num > 0) {
+                i.stressTestCycles = num;
+                args.EatParam();
             }
             continue;
         }

@@ -203,7 +203,7 @@
 
 .. method:: loadPage(number)
 
-    Returns a `Page`_ (or `PDFPage`_) object for the given page number. Page number zero (0) is the first page in the document.
+    Returns a :ref:`Page<mutool_run_js_api_page>` (or :ref:`PDFPage<mutool_run_js_api_pdf_page>`) object for the given page number. Page number zero (0) is the first page in the document.
 
     :return: `Page` or `PDFPage`.
 
@@ -247,6 +247,23 @@
 
 .. method:: resolveLink(uri)
 
+    Resolve a document internal link :title:`URI` to a page index.
+
+    :arg uri: `String`.
+    :return: `Integer`.
+
+    |example_tag|
+
+    .. code-block:: javascript
+
+        var pageNumber = document.resolveLink(my_link);
+
+
+.. _mutool_run_js_api_document_resolveLinkDestination:
+
+
+.. method:: resolveLinkDestination(uri)
+
     Resolve a document internal link :title:`URI` to a link destination.
 
     :arg uri: `String`.
@@ -256,7 +273,7 @@
 
     .. code-block:: javascript
 
-        var linkDestination = document.resolveLink(my_link);
+        var linkDestination = document.resolveLinkDestination(uri);
 
 
 

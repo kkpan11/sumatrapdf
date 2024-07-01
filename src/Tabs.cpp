@@ -78,6 +78,10 @@ void UpdateTabWidth(MainWindow* win) {
     int nTabs = (int)win->TabCount();
     bool showSingleTab = gGlobalPrefs->useTabs || win->tabsInTitlebar;
     bool showTabs = (nTabs > 1) || (showSingleTab && (nTabs > 0));
+    int tabWidth = gGlobalPrefs->tabWidth;
+    if (win->tabsCtrl) {
+        win->tabsCtrl->tabDefaultDx = tabWidth;
+    }
     if (!showTabs) {
         ShowTabBar(win, false);
         return;
@@ -91,7 +95,7 @@ void RemoveTab(WindowTab* tab) {
     win->tabSelectionHistory->Remove(tab);
     int idx = win->GetTabIdx(tab);
     WindowTab* tab2 = win->tabsCtrl->RemoveTab<WindowTab*>(idx);
-    CrashIf(tab != tab2);
+    ReportIf(tab != tab2);
     if (tab == win->CurrentTab()) {
         win->ctrl = nullptr;
         win->currentTabTemp = nullptr;
@@ -407,6 +411,8 @@ void CreateTabbar(MainWindow* win) {
     args.parent = win->hwndFrame;
     args.withToolTips = true;
     args.font = GetAppFont();
+    int tabWidth = gGlobalPrefs->tabWidth;
+    args.tabDefaultDx = tabWidth;
     tabsCtrl->Create(args);
     win->tabsCtrl = tabsCtrl;
     win->tabSelectionHistory = new Vec<WindowTab*>();
@@ -414,7 +420,7 @@ void CreateTabbar(MainWindow* win) {
 
 // verifies that WindowTab state is consistent with MainWindow state
 static NO_INLINE void VerifyWindowTab(MainWindow* win, WindowTab* tdata) {
-    CrashIf(tdata->ctrl != win->ctrl);
+    ReportIf(tdata->ctrl != win->ctrl);
 #if 0
     // disabling this check. best I can tell, external apps can change window
     // title and trigger this
@@ -447,7 +453,7 @@ void SaveCurrentWindowTab(MainWindow* win) {
         return;
     }
     if (win->CurrentTab() != win->Tabs().at(current)) {
-        return; // TODO: restore CrashIf() ?
+        return; // TODO: restore ReportIf() ?
     }
 
     WindowTab* tab = win->CurrentTab();
@@ -463,7 +469,7 @@ void SaveCurrentWindowTab(MainWindow* win) {
 }
 
 WindowTab* AddTabToWindow(MainWindow* win, WindowTab* tab) {
-    CrashIf(!win);
+    ReportIf(!win);
     if (!win) {
         return nullptr;
     }
@@ -484,7 +490,7 @@ WindowTab* AddTabToWindow(MainWindow* win, WindowTab* tab) {
         newTab->canClose = true;
         newTab->userData = (UINT_PTR)homeTab;
         int insertedIdx = tabs->InsertTab(idx, newTab);
-        CrashIf(insertedIdx != 0);
+        ReportIf(insertedIdx != 0);
         idx++;
     }
 
@@ -495,7 +501,7 @@ WindowTab* AddTabToWindow(MainWindow* win, WindowTab* tab) {
     newTab->userData = (UINT_PTR)tab;
 
     int insertedIdx = tabs->InsertTab(idx, newTab);
-    CrashIf(insertedIdx == -1);
+    ReportIf(insertedIdx == -1);
     tabs->SetSelected(insertedIdx);
     UpdateTabWidth(win);
     return tab;
@@ -504,12 +510,12 @@ WindowTab* AddTabToWindow(MainWindow* win, WindowTab* tab) {
 // Refresh the tab's title
 void TabsOnChangedDoc(MainWindow* win) {
     WindowTab* tab = win->CurrentTab();
-    CrashIf(!tab != !win->TabCount());
+    ReportIf(!tab != !win->TabCount());
     if (!tab) {
         return;
     }
 
-    CrashIf(win->GetTabIdx(tab) != win->tabsCtrl->GetSelected());
+    ReportIf(win->GetTabIdx(tab) != win->tabsCtrl->GetSelected());
     VerifyWindowTab(win, tab);
     UpdateTabTitle(tab);
 }

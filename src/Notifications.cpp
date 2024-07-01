@@ -13,6 +13,7 @@
 
 #include "Settings.h"
 #include "AppSettings.h"
+#include "Annotation.h"
 #include "SumatraPdf.h"
 #include "AppTools.h"
 
@@ -212,7 +213,7 @@ HWND NotificationWnd::Create(const NotificationCreateArgs& args) {
 }
 
 void NotificationWnd::UpdateProgress(int current, int total) {
-    CrashIf(total <= 0);
+    ReportIf(total <= 0);
     if (total <= 0) {
         total = 1;
     }
@@ -387,12 +388,12 @@ void NotificationWnd::OnPaint(HDC hdcIn, PAINTSTRUCT* ps) {
 }
 
 void NotificationWnd::OnTimer(UINT_PTR timerId) {
-    CrashIf(kNotifTimerTimeoutId != timerId);
+    ReportIf(kNotifTimerTimeoutId != timerId);
     // TODO a better way to delete myself
     if (wndRemovedCb) {
-        uitask::Post([this] { wndRemovedCb(this); });
+        uitask::Post(TaskNotifOnTimerRemove, [this] { wndRemovedCb(this); });
     } else {
-        uitask::Post([this] { delete this; });
+        uitask::Post(TaskNotifOnTimerDelete, [this] { delete this; });
     }
 }
 
@@ -429,9 +430,9 @@ LRESULT NotificationWnd::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         if (rClose.Contains(pt)) {
             // TODO a better way to delete myself
             if (wndRemovedCb) {
-                uitask::Post([this] { wndRemovedCb(this); });
+                uitask::Post(TaskNotifWndProcRemove, [this] { wndRemovedCb(this); });
             } else {
-                uitask::Post([this] { delete this; });
+                uitask::Post(TaskNotifWndProcDelete, [this] { delete this; });
             }
             return 0;
         }
@@ -441,8 +442,8 @@ DoDefault:
     return WndProcDefault(hwnd, msg, wp, lp);
 }
 
-static void NotifsRemoveForGroup(Vec<NotificationWnd*>& wnds, Kind groupId) {
-    CrashIf(groupId == nullptr);
+static int NotifsRemoveForGroup(Vec<NotificationWnd*>& wnds, Kind groupId) {
+    ReportIf(groupId == nullptr);
     Vec<NotificationWnd*> toRemove;
     for (auto* wnd : wnds) {
         if (wnd->groupId == groupId) {
@@ -452,6 +453,7 @@ static void NotifsRemoveForGroup(Vec<NotificationWnd*>& wnds, Kind groupId) {
     for (auto* wnd : toRemove) {
         NotifsRemoveNotification(wnds, wnd);
     }
+    return toRemove.Size();
 }
 
 static void NotifsAdd(Vec<NotificationWnd*>& wnds, NotificationWnd* wnd, Kind groupId) {
@@ -470,7 +472,7 @@ static void NotifsAdd(NotificationWnd* wnd, Kind groupId) {
 }
 
 NotificationWnd* NotifsGetForGroup(Vec<NotificationWnd*>& wnds, Kind groupId) {
-    CrashIf(!groupId);
+    ReportIf(!groupId);
     for (auto* wnd : wnds) {
         if (wnd->groupId == groupId) {
             return wnd;
@@ -480,7 +482,7 @@ NotificationWnd* NotifsGetForGroup(Vec<NotificationWnd*>& wnds, Kind groupId) {
 }
 
 NotificationWnd* ShowNotification(const NotificationCreateArgs& args) {
-    CrashIf(!args.hwndParent);
+    ReportIf(!args.hwndParent);
 
     NotificationWnd* wnd = new NotificationWnd();
     wnd->Create(args);
@@ -524,10 +526,11 @@ void RemoveNotification(NotificationWnd* wnd) {
     NotifsRemoveNotification(wnd);
 }
 
-void RemoveNotificationsForGroup(HWND hwnd, Kind kind) {
+bool RemoveNotificationsForGroup(HWND hwnd, Kind kind) {
     Vec<NotificationWnd*> wnds;
     GetForHwnd(hwnd, wnds);
-    NotifsRemoveForGroup(wnds, kind);
+    int n = NotifsRemoveForGroup(wnds, kind);
+    return n > 0;
 }
 
 NotificationWnd* GetNotificationForGroup(HWND hwnd, Kind kind) {

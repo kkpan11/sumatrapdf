@@ -8,10 +8,12 @@
 #include "utils/HtmlParserLookup.h"
 #include "utils/Timer.h"
 #include "utils/WinUtil.h"
+#include "utils/StrQueue.h"
 
 #include "wingui/UIModels.h"
 
 #include "Settings.h"
+#include "DocProperties.h"
 #include "DocController.h"
 #include "EngineBase.h"
 #include "EngineAll.h"
@@ -144,7 +146,7 @@ static void BenchFile(const char* path, const char* pagesSpec) {
         }
     }
 
-    CrashIf(pagesSpec && !IsBenchPagesInfo(pagesSpec));
+    ReportIf(pagesSpec && !IsBenchPagesInfo(pagesSpec));
     Vec<PageRange> ranges;
     if (ParsePageRanges(pagesSpec, ranges)) {
         for (size_t i = 0; i < ranges.size(); i++) {
@@ -173,7 +175,7 @@ static bool IsFileToBench(const char* path) {
 }
 
 static void CollectFilesToBench(char* dir, StrVec& files) {
-    DirTraverse(dir, true, [&files](const char* path) -> bool {
+    DirTraverse(dir, true, [&files](WIN32_FIND_DATAW*, const char* path) -> bool {
         if (IsFileToBench(path)) {
             files.Append(path);
         }
@@ -185,16 +187,16 @@ static void BenchDir(char* dir) {
     StrVec files;
     CollectFilesToBench(dir, files);
     for (int i = 0; i < files.Size(); i++) {
-        BenchFile(files.at(i), nullptr);
+        BenchFile(files.At(i), nullptr);
     }
 }
 
 void BenchFileOrDir(StrVec& pathsToBench) {
     int n = pathsToBench.Size() / 2;
     for (int i = 0; i < n; i++) {
-        char* path = pathsToBench.at(2 * i);
+        char* path = pathsToBench.At(2 * i);
         if (file::Exists(path)) {
-            BenchFile(path, pathsToBench.at(2 * i + 1));
+            BenchFile(path, pathsToBench.At(2 * i + 1));
         } else if (dir::Exists(path)) {
             BenchDir(path);
         } else {
@@ -291,20 +293,19 @@ static void MakeRandomSelection(MainWindow* win, int pageNo) {
 
 // encapsulates the logic of getting the next file to test, so
 // that we can implement different strategies
-class TestFileProvider {
-  public:
+struct TestFileProvider {
     virtual ~TestFileProvider() {
     }
     // returns path of the next file to test or nullptr if done (caller needs to free() the result)
     virtual TempStr NextFile() = 0;
+    virtual void Restart() = 0;
     virtual int GetFilesCount() = 0;
 };
 
-class FilesProvider : public TestFileProvider {
+struct FilesProvider : TestFileProvider {
     StrVec files;
     int provided = 0;
 
-  public:
     explicit FilesProvider(const char* path) {
         files.Append(path);
         provided = 0;
@@ -329,12 +330,16 @@ class FilesProvider : public TestFileProvider {
         if (provided >= files.Size()) {
             return nullptr;
         }
-        TempStr res = files.at(provided++);
+        TempStr res = files.At(provided++);
         return res;
+    }
+
+    void Restart() override {
+        provided = 0;
     }
 };
 
-class DirFileProviderAsync : public TestFileProvider {
+struct DirFileProviderAsync : TestFileProvider {
     StrQueue queue;
     AutoFreeStr startDir;
     AutoFreeStr fileFilter;
@@ -345,7 +350,6 @@ class DirFileProviderAsync : public TestFileProvider {
 
     AtomicInt nFiles;
 
-  public:
     DirFileProviderAsync(const char* path, const char* filter, int max = 0, bool random = false) {
         startDir.SetCopy(path);
         if (filter && !str::Eq(filter, "*")) {
@@ -353,12 +357,17 @@ class DirFileProviderAsync : public TestFileProvider {
         }
         this->max = max;
         this->random = random;
-        StartDirTraverseAsync(&queue, path, true);
+        StartDirTraverseAsync(&queue, startDir.CStr(), true);
     }
     ~DirFileProviderAsync() override = default;
     TempStr NextFile() override;
     int GetFilesCount() override {
         return queue.Size();
+    }
+
+    virtual void Restart() override {
+        nFiles.Set(0);
+        StartDirTraverseAsync(&queue, startDir.CStr(), true);
     }
 };
 
@@ -373,13 +382,12 @@ again:
             int n = q->strings.Size();
             int idx = rand() % n;
             path = q->strings.RemoveAtFast(idx);
-            path = str::DupTemp(path);
         });
         if (isFinished) {
-            CrashIf(path);
+            ReportIf(path);
             return nullptr;
         }
-        CrashIf(!path);
+        ReportIf(!path);
         if (!IsStressTestSupportedFile(path, fileFilter.Get())) {
             goto again;
         }
@@ -413,9 +421,12 @@ struct StressTest {
     int nSlowPages = 0;
 
     SYSTEMTIME stressStartTime{};
+    int cycles = 1;
     Vec<PageRange> pageRanges;
+    // range of files to render (files get a new index when going through several cycles)
     Vec<PageRange> fileRanges;
     int fileIndex = 0;
+    bool gotToc = false;
 
     // owned by StressTest
     TestFileProvider* fileProvider = nullptr;
@@ -427,7 +438,7 @@ struct StressTest {
 template <typename T>
 T RemoveRandomElementFromVec(Vec<T>& v) {
     auto n = v.Size();
-    CrashIf(n <= 0);
+    ReportIf(n <= 0);
     int idx = rand() % n;
     int res = v.PopAt((size_t)idx);
     return res;
@@ -440,18 +451,19 @@ StressTest::StressTest(MainWindow* win, bool exitWhenDone) {
 }
 
 StressTest::~StressTest() {
-    //TODO: it can be shared so find a different way to free it
-    //delete fileProvider;
+    // TODO: it can be shared so find a different way to free it
+    // delete fileProvider;
 }
 
 static void TickTimer(StressTest* st) {
     SetTimer(st->win->hwndFrame, st->timerId, USER_TIMER_MINIMUM, nullptr);
 }
 
-static void Start(StressTest* st, TestFileProvider* fileProvider) {
+static void Start(StressTest* st, TestFileProvider* fileProvider, int cycles) {
     GetSystemTime(&st->stressStartTime);
 
     st->fileProvider = fileProvider;
+    st->cycles = cycles;
 
     if (st->pageRanges.size() == 0) {
         st->pageRanges.Append(PageRange());
@@ -482,15 +494,15 @@ static void Finished(StressTest* st, bool success) {
     delete st;
 }
 
-static void Start(StressTest* st, const char* path, const char* filter, const char* ranges) {
+static void Start(StressTest* st, const char* path, const char* filter, const char* ranges, int cycles) {
     if (file::Exists(path)) {
         FilesProvider* filesProvider = new FilesProvider(path);
         ParsePageRanges(ranges, st->pageRanges);
-        Start(st, filesProvider);
+        Start(st, filesProvider, cycles);
     } else if (dir::Exists(path)) {
         auto dirFileProvider = new DirFileProviderAsync(path, filter);
         ParsePageRanges(ranges, st->fileRanges);
-        Start(st, dirFileProvider);
+        Start(st, dirFileProvider, cycles);
     } else {
         TempStr s = str::FormatTemp("Path '%s' doesn't exist", path);
         NotificationCreateArgs args;
@@ -531,7 +543,7 @@ static bool OpenFile(StressTest* st, const char* fileName) {
 #if 0
     // transfer ownership of stressTest object to a new window and close the
     // current one
-    CrashIf(st != st->win->stressTest);
+    ReportIf(st != st->win->stressTest);
     if (w != st->win) {
         if (st->win->IsDocLoaded()) {
             // try to provoke a crash in RenderCache cleanup code
@@ -555,9 +567,10 @@ static bool OpenFile(StressTest* st, const char* fileName) {
         return false;
     }
 
-    st->win->ctrl->SetDisplayMode(DisplayMode::Continuous);
-    st->win->ctrl->SetZoomVirtual(kZoomFitPage, nullptr);
-    st->win->ctrl->GoToFirstPage();
+    auto ctrl = st->win->ctrl;
+    ctrl->SetDisplayMode(DisplayMode::Continuous);
+    ctrl->SetZoomVirtual(kZoomFitPage, nullptr);
+    ctrl->GoToFirstPage();
     if (st->win->tocVisible || gGlobalPrefs->showFavorites) {
         SetSidebarVisibility(st->win, st->win->tocVisible, gGlobalPrefs->showFavorites);
     }
@@ -565,7 +578,7 @@ static bool OpenFile(StressTest* st, const char* fileName) {
     st->nSlowPages = 0;
     st->pagesToRender.Clear();
     constexpr int nMaxPages = 32;
-    int nPages = st->win->ctrl->PageCount();
+    int nPages = ctrl->PageCount();
     if (IsFullRange(st->pageRanges)) {
         Vec<int> allPages;
         for (int n = 1; n <= nPages; n++) {
@@ -595,14 +608,14 @@ static bool OpenFile(StressTest* st, const char* fileName) {
     st->pageForSearchStart = st->pagesToRender[randomPageIdx];
 
     st->currPageNo = st->pagesToRender.PopAt(0);
-    st->win->ctrl->GoToPage(st->currPageNo, false);
+    ctrl->GoToPage(st->currPageNo, false);
     st->currPageRenderTime = TimeGet();
     ++st->nFilesProcessed;
 
     // search immediately in single page documents
     if (1 == st->pageForSearchStart) {
         // use text that is unlikely to be found, so that we search all pages
-        HwndSetText(st->win->hwndFindEdit, L"!z_yt");
+        HwndSetText(st->win->hwndFindEdit, "!z_yt");
         FindTextOnThread(st->win, TextSearchDirection::Forward, true);
     }
 
@@ -683,7 +696,10 @@ static bool GoToNextFile(StressTest* st) {
             }
             continue;
         }
-        return false;
+        if (--st->cycles <= 0) {
+            return false;
+        }
+        st->fileProvider->Restart();
     }
 }
 
@@ -713,9 +729,25 @@ static bool GoToNextPage(StressTest* st) {
         return false;
     }
 
+    auto ctrl = st->win->ctrl;
+    if (!st->gotToc) {
+        // trigger getting toc and props
+        st->gotToc = true;
+        ctrl->GetToc();
+        const char** props = gAllProps;
+        while (*props) {
+            const char* prop = *props++;
+            if (str::Eq(prop, kPropFontList)) {
+                // this can be expensive so skip
+                continue;
+            }
+            ctrl->GetPropertyTemp(prop);
+        }
+    }
+
     RandomizeViewingState(st);
     st->currPageNo = st->pagesToRender.PopAt(0);
-    st->win->ctrl->GoToPage(st->currPageNo, false);
+    ctrl->GoToPage(st->currPageNo, false);
     st->currPageRenderTime = TimeGet();
 
     // start text search when we're in the middle of the document, so that
@@ -725,7 +757,7 @@ static bool GoToNextPage(StressTest* st) {
     // current API doesn't make it easy
     if (st->currPageNo == st->pageForSearchStart) {
         // use text that is unlikely to be found, so that we search all pages
-        HwndSetText(st->win->hwndFindEdit, L"!z_yt");
+        HwndSetText(st->win->hwndFindEdit, "!z_yt");
         FindTextOnThread(st->win, TextSearchDirection::Forward, true);
     }
 
@@ -750,7 +782,7 @@ static void OnTimer(StressTest* st, int timerIdGot) {
     DisplayModel* dm;
     bool didRender;
 
-    CrashIf(st->timerId != timerIdGot);
+    ReportIf(st->timerId != timerIdGot);
     KillTimer(st->win->hwndFrame, st->timerId);
     if (!st->win->IsDocLoaded()) {
         if (!GoToNextFile(st)) {
@@ -775,7 +807,7 @@ static void OnTimer(StressTest* st, int timerIdGot) {
     // Image files are always fully rendered in WM_PAINT, so we know the page
     // has already been rendered.
     dm = st->win->AsFixed();
-    didRender = gRenderCache.Exists(dm, st->currPageNo, dm->GetRotation());
+    didRender = gRenderCache->Exists(dm, st->currPageNo, dm->GetRotation());
     if (!didRender && dm->ShouldCacheRendering(st->currPageNo)) {
         double timeInMs = TimeSinceInMs(st->currPageRenderTime);
         if (timeInMs > 3.0 * 1000) {
@@ -858,7 +890,7 @@ void StartStressTest(Flags* i, MainWindow* win) {
             win = windows[j];
             StressTest* dst = new StressTest(win, i->exitWhenDone);
             win->stressTest = dst;
-            Start(dst, filesProvider);
+            Start(dst, filesProvider, i->stressTestCycles);
         }
 
         free(windows);
@@ -866,7 +898,7 @@ void StartStressTest(Flags* i, MainWindow* win) {
         // dst will be deleted when the stress ends
         StressTest* st = new StressTest(win, i->exitWhenDone);
         win->stressTest = st;
-        Start(st, i->stressTestPath, i->stressTestFilter, i->stressTestRanges);
+        Start(st, i->stressTestPath, i->stressTestFilter, i->stressTestRanges, i->stressTestCycles);
     }
 }
 

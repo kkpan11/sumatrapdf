@@ -4,6 +4,8 @@
 #include "utils/BaseUtil.h"
 #include "utils/ScopedWin.h"
 
+#include "utils/Log.h"
+
 Kind kindNone = "none";
 
 // if > 1 we won't crash when memory allocation fails
@@ -36,7 +38,7 @@ int AtomicInt::Sub(int n) {
 }
 
 int AtomicInt::Get() const {
-    return InterlockedCompareExchange((LONG*)&val, 0, 0);
+    return (int)InterlockedCompareExchange((LONG*)&val, 0, 0);
 }
 
 bool AtomicBool::Get() const {
@@ -58,8 +60,14 @@ int AtomicRefCount::Add() {
 // by all who held a reference to it
 bool AtomicRefCount::Dec() {
     auto res = InterlockedDecrement(&val);
-    CrashIf(res < 0);
+    ReportIf(res < 0);
     return res == 0;
+}
+
+void BreakIfUnderDebugger() {
+    if (IsDebuggerPresent()) {
+        DebugBreak();
+    }
 }
 
 void* Allocator::Alloc(Allocator* a, size_t size) {
@@ -152,7 +160,7 @@ static void PoisonData(PoolAllocator::Block* curr) {
             d = (char*)curr + hdrSize;
             // the buffer is big so optimize to only poison the data
             // allocated in this block
-            CrashIf(d > curr->freeSpace);
+            ReportIf(d > curr->freeSpace);
             size_t n = (curr->freeSpace - d);
             const char* dead = "dea_";
             const char* dea0 = "dea\0";
@@ -182,7 +190,7 @@ static void ResetBlock(PoolAllocator::Block* block) {
     block->freeSpace = start + hdrSize;
     block->end = start + block->dataSize;
     block->next = nullptr;
-    CrashIf(RoundUp(block->freeSpace, kPoolAllocatorAlign) != block->freeSpace);
+    ReportIf(RoundUp(block->freeSpace, kPoolAllocatorAlign) != block->freeSpace);
 }
 
 void PoolAllocator::Reset(bool poisonFreedMemory) {
@@ -192,7 +200,7 @@ void PoolAllocator::Reset(bool poisonFreedMemory) {
     // with more effort we could preserve all blocks (not sure if worth it)
     Block* first = firstBlock;
     if (!first) {
-        CrashIf(currBlock);
+        ReportIf(currBlock);
         return;
     }
     if (poisonFreedMemory) {
@@ -238,7 +246,7 @@ void* PoolAllocator::Alloc(size_t size) {
     size_t sizeRounded = RoundUp(size, kPoolAllocatorAlign);
     size_t cbNeeded = sizeRounded + sizeof(i32);
     if (currBlock) {
-        CrashIf(currBlock->freeSpace > currBlock->end);
+        ReportIf(currBlock->freeSpace > currBlock->end);
         size_t cbAvail = (currBlock->end - currBlock->freeSpace);
         hasSpace = cbAvail >= cbNeeded;
     }
@@ -258,7 +266,7 @@ void* PoolAllocator::Alloc(size_t size) {
         block->dataSize = dataSize;
         ResetBlock(block);
         if (!firstBlock) {
-            CrashIf(currBlock);
+            ReportIf(currBlock);
             firstBlock = block;
         } else {
             currBlock->next = block;
@@ -272,9 +280,9 @@ void* PoolAllocator::Alloc(size_t size) {
         printSize("PoolAllocator: ", size);
         printSize("overshot: ", cbOvershot);
         printSize("hdrSizet: ", hdrSize);
-        CrashIf(true);
+        ReportIf(true);
     }
-    CrashIf(RoundUp(currBlock->freeSpace, kPoolAllocatorAlign) != currBlock->freeSpace);
+    ReportIf(RoundUp(currBlock->freeSpace, kPoolAllocatorAlign) != currBlock->freeSpace);
 
     char* blockStart = (char*)currBlock;
     i32 offset = (i32)(res - blockStart);
@@ -290,7 +298,7 @@ void* PoolAllocator::Alloc(size_t size) {
 void* PoolAllocator::At(int i) {
     ScopedCritSec scs(&cs);
 
-    CrashIf(i < 0 || i >= nAllocs);
+    ReportIf(i < 0 || i >= nAllocs);
     if (i < 0 || i >= nAllocs) {
         return nullptr;
     }
@@ -299,11 +307,11 @@ void* PoolAllocator::At(int i) {
         i -= (int)curr->nAllocs;
         curr = curr->next;
     }
-    CrashIf(!curr);
+    ReportIf(!curr);
     if (!curr) {
         return nullptr;
     }
-    CrashIf((size_t)i >= curr->nAllocs);
+    ReportIf((size_t)i >= curr->nAllocs);
     i32* index = (i32*)curr->end;
     // elements are in reverse
     size_t idx = curr->nAllocs - i - 1;
@@ -467,4 +475,46 @@ u32 MurmurHashStrI(const char* s) {
         *dst++ = c;
     }
     return MurmurHash2(dst - len, len);
+}
+
+int limitValue(int val, int min, int max) {
+    if (min > max) {
+        std::swap(min, max);
+    }
+    ReportIf(min > max);
+    if (val < min) {
+        return min;
+    }
+    if (val > max) {
+        return max;
+    }
+    return val;
+}
+
+DWORD limitValue(DWORD val, DWORD min, DWORD max) {
+    if (min > max) {
+        std::swap(min, max);
+    }
+    ReportIf(min > max);
+    if (val < min) {
+        return min;
+    }
+    if (val > max) {
+        return max;
+    }
+    return val;
+}
+
+float limitValue(float val, float min, float max) {
+    if (min > max) {
+        std::swap(min, max);
+    }
+    ReportIf(min > max);
+    if (val < min) {
+        return min;
+    }
+    if (val > max) {
+        return max;
+    }
+    return val;
 }

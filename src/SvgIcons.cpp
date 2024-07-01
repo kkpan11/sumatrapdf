@@ -152,6 +152,9 @@ static const char* gIcons[] = {
 
 const char* GetSvgIcon(TbIcon idx) {
     int n = (int)idx;
-    CrashIf(n < 0 || n >= dimofi(gIcons));
+    ReportIf(n < 0 || n >= dimofi(gIcons));
+    if (n >= dimofi(gIcons)) {
+        return nullptr;
+    }
     return gIcons[n];
 }

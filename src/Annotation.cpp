@@ -109,12 +109,12 @@ static const char* gAnnotReadableNames =
 /*
 const char* AnnotationName(AnnotationType tp) {
     int n = (int)tp;
-    CrashIf(n < -1 || n > (int)AnnotationType::ThreeD);
+    ReportIf(n < -1 || n > (int)AnnotationType::ThreeD);
     if (n < 0) {
         return "Unknown";
     }
     const char* s = seqstrings::IdxToStr(gAnnotNames, n);
-    CrashIf(!s);
+    ReportIf(!s);
     return s;
 }
 */
@@ -132,7 +132,7 @@ TempStr AnnotationReadableNameTemp(AnnotationType tp) {
         return (char*)"Unknown";
     }
     char* s = (char*)seqstrings::IdxToStr(gAnnotReadableNames, n);
-    CrashIf(!s);
+    ReportIf(!s);
     return s;
 }
 
@@ -144,12 +144,12 @@ bool IsAnnotationEq(Annotation* a1, Annotation* a2) {
 }
 
 AnnotationType Type(Annotation* annot) {
-    CrashIf((int)annot->type < 0);
+    ReportIf((int)annot->type < 0);
     return annot->type;
 }
 
 int PageNo(Annotation* annot) {
-    CrashIf(annot->pageNo < 1);
+    ReportIf(annot->pageNo < 1);
     return annot->pageNo;
 }
 
@@ -246,7 +246,7 @@ bool SetQuadding(Annotation* annot, int newQuadding) {
     {
         auto ctx = e->Ctx();
         ScopedCritSec cs(e->ctxAccess);
-        CrashIf(!IsValidQuadding(newQuadding));
+        ReportIf(!IsValidQuadding(newQuadding));
         bool didChange = Quadding(annot) != newQuadding;
         if (!didChange) {
             return false;
@@ -337,6 +337,9 @@ TempStr Contents(Annotation* annot) {
 }
 
 bool SetContents(Annotation* annot, const char* sv) {
+    if (!annot) {
+        return false;
+    }
     EngineMupdf* e = annot->engine;
     const char* currValue = Contents(annot);
     if (str::Eq(sv, currValue)) {
@@ -513,7 +516,7 @@ static PdfColor PdfColorFromFloat(fz_context* ctx, int n, float color[4]) {
         }
         return MkPdfColorFromFloat(rgb[0], rgb[1], rgb[2]);
     }
-    CrashIf(true);
+    ReportIf(true);
     return 0;
 }
 
@@ -872,7 +875,7 @@ void SetOpacity(Annotation* annot, int newOpacity) {
     {
         auto ctx = e->Ctx();
         ScopedCritSec cs(e->ctxAccess);
-        CrashIf(newOpacity < 0 || newOpacity > 255);
+        ReportIf(newOpacity < 0 || newOpacity > 255);
         newOpacity = std::clamp(newOpacity, 0, 255);
         float fopacity = (float)newOpacity / 255.f;
 
@@ -991,7 +994,7 @@ bool IsMoveableAnnotation(AnnotationType tp) {
     return IsAnnotationInList(tp, moveableAnnotations);
 }
 
-Annotation* EngineMupdfCreateAnnotation(EngineBase* engine, AnnotationType typ, int pageNo, PointF pos) {
+Annotation* EngineMupdfCreateAnnotation(EngineBase* engine, int pageNo, PointF pos, AnnotCreateArgs* args) {
     static const float black[3] = {0, 0, 0};
 
     EngineMupdf* epdf = AsEngineMupdf(engine);
@@ -999,7 +1002,8 @@ Annotation* EngineMupdfCreateAnnotation(EngineBase* engine, AnnotationType typ, 
 
     auto pageInfo = epdf->GetFzPageInfo(pageNo, true);
     pdf_annot* annot = nullptr;
-
+    auto typ = args->annotType;
+    auto col = args->col;
     {
         ScopedCritSec cs(epdf->ctxAccess);
 
@@ -1057,16 +1061,15 @@ Annotation* EngineMupdfCreateAnnotation(EngineBase* engine, AnnotationType typ, 
                     fontSize = 12;
                 }
                 int nCol = 3;
-                const float* col = black;
+                const float* fcol = black;
                 float textColor[3]{};
 
-                auto parsedCol = GetParsedColor(a.freeTextColor, a.freeTextColorParsed);
-                if (parsedCol && parsedCol->parsedOk) {
-                    PdfColorToFloat(parsedCol->pdfCol, textColor);
-                    col = textColor;
+                if (col.parsedOk) {
+                    PdfColorToFloat(col.pdfCol, textColor);
+                    fcol = textColor;
                 }
 
-                pdf_set_annot_default_appearance(ctx, annot, "Helv", (float)fontSize, nCol, col);
+                pdf_set_annot_default_appearance(ctx, annot, "Helv", (float)fontSize, nCol, fcol);
             }
 
             pdf_update_annot(ctx, annot);
@@ -1086,26 +1089,15 @@ Annotation* EngineMupdfCreateAnnotation(EngineBase* engine, AnnotationType typ, 
     MarkNotificationAsModified(epdf, res, AnnotationChange::Add);
 
     auto& a = gGlobalPrefs->annotations;
-    ParsedColor* parsedCol = nullptr;
 
     if (typ == AnnotationType::Text) {
         TempStr iconName = GetAnnotationTextIconTemp();
         if (!str::EqI(iconName, "Note")) {
             SetIconName(res, iconName);
         }
-        parsedCol = GetParsedColor(a.textIconColor, a.textIconColorParsed);
-    } else if (typ == AnnotationType::Underline) {
-        parsedCol = GetParsedColor(a.underlineColor, a.underlineColorParsed);
-    } else if (typ == AnnotationType::Highlight) {
-        parsedCol = GetParsedColor(a.highlightColor, a.highlightColorParsed);
-    } else if (typ == AnnotationType::Squiggly) {
-        parsedCol = GetParsedColor(a.squigglyColor, a.squigglyColorParsed);
-    } else if (typ == AnnotationType::StrikeOut) {
-        parsedCol = GetParsedColor(a.strikeOutColor, a.strikeOutColorParsed);
-    } else if (typ == AnnotationType::FreeText) {
     }
-    if (parsedCol && parsedCol->parsedOk) {
-        SetColor(res, parsedCol->pdfCol);
+    if (col.parsedOk) {
+        SetColor(res, col.pdfCol);
     }
 
     pdf_drop_annot(ctx, annot);

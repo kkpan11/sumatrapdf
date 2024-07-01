@@ -61,7 +61,7 @@ static int GetWeekCount() {
     date20110101.wDay = 1;
     FILETIME origTime, currTime;
     BOOL ok = SystemTimeToFileTime(&date20110101, &origTime);
-    CrashIf(!ok);
+    ReportIf(!ok);
     GetSystemTimeAsFileTime(&currTime);
     return (currTime.dwHighDateTime - origTime.dwHighDateTime) / 1408;
     // 1408 == (10 * 1000 * 1000 * 60 * 60 * 24 * 7) / (1 << 32)
@@ -76,7 +76,7 @@ TempStr GetSettingsFileNameTemp() {
 }
 
 TempStr GetSettingsPathTemp() {
-    return AppGenDataFilenameTemp(GetSettingsFileNameTemp());
+    return GetPathInAppDataDirTemp(GetSettingsFileNameTemp());
 }
 
 static void setMin(int& i, int minVal) {
@@ -96,7 +96,7 @@ static void setMinMax(int& i, int minVal, int maxVal) {
 
 /* Caller needs to CleanUpSettings() */
 bool LoadSettings() {
-    CrashIf(gGlobalPrefs);
+    ReportIf(gGlobalPrefs);
 
     auto timeStart = TimeGet();
 
@@ -106,7 +106,7 @@ bool LoadSettings() {
         ByteSlice prefsData = file::ReadFile(settingsPath);
 
         gGlobalPrefs = NewGlobalPrefs(prefsData);
-        CrashAlwaysIf(!gGlobalPrefs);
+        ReportIf(!gGlobalPrefs);
         gprefs = gGlobalPrefs;
         prefsData.Free();
     }
@@ -118,7 +118,7 @@ bool LoadSettings() {
     gprefs->lastPrefUpdate = file::GetModificationTime(settingsPath);
     gprefs->defaultDisplayModeEnum = DisplayModeFromString(gprefs->defaultDisplayMode, DisplayMode::Automatic);
     gprefs->defaultZoomFloat = ZoomFromString(gprefs->defaultZoom, kZoomActualSize);
-    CrashIf(!IsValidZoom(gprefs->defaultZoomFloat));
+    ReportIf(!IsValidZoom(gprefs->defaultZoomFloat));
 
     int weekDiff = GetWeekCount() - gprefs->openCountWeek;
     gprefs->openCountWeek = GetWeekCount();
@@ -188,7 +188,7 @@ bool LoadSettings() {
     }
     ResetCachedFonts();
 
-    logf("LoadSettings() took %.2f ms\n", TimeSinceInMs(timeStart));
+    logf("LoadSettings('%s') took %.2f ms\n", settingsPath, TimeSinceInMs(timeStart));
     return true;
 }
 
@@ -245,7 +245,7 @@ bool SaveSettings() {
     if (!HasPermission(Perm::SavePreferences)) {
         return false;
     }
-
+    logf("SaveSettings\n");
     // update display states for all tabs
     for (MainWindow* win : gWindows) {
         for (WindowTab* tab : win->Tabs()) {
@@ -272,7 +272,7 @@ bool SaveSettings() {
         str::Free(prevPrefs.data());
         str::Free(prefs.data());
     };
-    CrashIf(prefs.empty());
+    ReportIf(prefs.empty());
     if (prefs.empty()) {
         return false;
     }
@@ -329,7 +329,7 @@ bool ReloadSettings() {
     CleanUpSettings();
 
     ok = LoadSettings();
-    CrashAlwaysIf(!ok || !gGlobalPrefs);
+    ReportIf(!ok || !gGlobalPrefs);
 
     // TODO: about window doesn't have to be at position 0
     if (gWindows.size() > 0 && gWindows.at(0)->IsCurrentTabAbout()) {
@@ -363,7 +363,7 @@ void CleanUpSettings() {
 }
 
 void schedulePrefsReload() {
-    uitask::Post(ReloadSettings);
+    uitask::Post(TaskReloadSettings, ReloadSettings);
 }
 
 void RegisterSettingsForFileChanges() {
@@ -371,7 +371,7 @@ void RegisterSettingsForFileChanges() {
         return;
     }
 
-    CrashIf(gWatchedSettingsFile); // only call me once
+    ReportIf(gWatchedSettingsFile); // only call me once
     TempStr path = GetSettingsPathTemp();
     gWatchedSettingsFile = FileWatcherSubscribe(path, schedulePrefsReload);
 }

@@ -170,7 +170,6 @@ struct EditAnnotationsWindow : Wnd {
     str::Str currCustomInteriorColor;
 
     void OnSize(UINT msg, UINT type, SIZE size) override;
-    void OnClose() override;
     void OnFocus() override;
     bool PreTranslateMessage(MSG&) override;
 
@@ -220,11 +219,11 @@ void DeleteAnnotationAndUpdateUI(WindowTab* tab, Annotation* annot) {
 static void DeleteSelectedAnnotation(EditAnnotationsWindow* ew) {
     int idx = ew->listBox->GetCurrentSelection();
     if (idx < 0) {
-        CrashIf(ew->tab->selectedAnnotation != nullptr);
+        ReportIf(ew->tab->selectedAnnotation != nullptr);
         return;
     }
     Annotation* annot = ew->annotations.at(idx);
-    CrashIf(ew->tab->selectedAnnotation != annot);
+    ReportIf(ew->tab->selectedAnnotation != annot);
     DeleteAnnotationAndUpdateUI(ew->tab, annot);
 
     // Note: auto-selecting next annotation might cause page jumping
@@ -384,10 +383,12 @@ static void RebuildAnnotationsListBox(EditAnnotationsWindow* ew) {
     EnableSaveIfAnnotationsChanged(ew);
 }
 
-void EditAnnotationsWindow::OnClose() {
-    HWND toActivate = tab->win->hwndFrame;
-    tab->editAnnotsWindow = nullptr;
-    delete this; // sketchy
+// TODO: this should be OnDestroy()
+static void OnClose(WmCloseEvent& ev) {
+    auto w = (EditAnnotationsWindow*)ev.e->self;
+    HWND toActivate = w->tab->win->hwndFrame;
+    w->tab->editAnnotsWindow = nullptr;
+    delete w; // TODO: sketchy
     SetActiveWindow(toActivate);
 }
 
@@ -461,7 +462,7 @@ static PdfColor GetDropDownColor(const char* sv) {
     int idx = seqstrings::StrToIdx(gColors, sv);
     if (idx >= 0) {
         int nMaxColors = (int)dimof(gColorsValues);
-        CrashIf(idx >= nMaxColors);
+        ReportIf(idx >= nMaxColors);
         if (idx < nMaxColors) {
             return gColorsValues[idx];
         }
@@ -605,8 +606,12 @@ static void DoTextSize(EditAnnotationsWindow* ew, Annotation* annot) {
 }
 
 static void TextFontSizeChanging(EditAnnotationsWindow* ew, TrackbarPosChangingEvent* ev) {
+    auto annot = ew->tab->selectedAnnotation;
+    if (!annot) {
+        return;
+    }
     int fontSize = ev->pos;
-    SetDefaultAppearanceTextSize(ew->tab->selectedAnnotation, fontSize);
+    SetDefaultAppearanceTextSize(annot, fontSize);
     TempStr s = str::FormatTemp(_TRA("Text Size: %d"), fontSize);
     ew->staticTextSize->SetText(s);
     EnableSaveIfAnnotationsChanged(ew);
@@ -625,7 +630,7 @@ static void DoTextColor(EditAnnotationsWindow* ew, Annotation* annot) {
 
 static void TextColorSelectionChanged(EditAnnotationsWindow* ew) {
     auto idx = ew->dropDownTextColor->GetCurrentSelection();
-    char* item = ew->dropDownTextColor->items.at(idx);
+    char* item = ew->dropDownTextColor->items.At(idx);
     auto col = GetDropDownColor(item);
     SetDefaultAppearanceTextColor(ew->tab->selectedAnnotation, col);
     EnableSaveIfAnnotationsChanged(ew);
@@ -724,7 +729,7 @@ static void DoIcon(EditAnnotationsWindow* ew, Annotation* annot) {
 
 static void IconSelectionChanged(EditAnnotationsWindow* ew) {
     auto idx = ew->dropDownIcon->GetCurrentSelection();
-    auto item = ew->dropDownIcon->items.at(idx);
+    auto item = ew->dropDownIcon->items.At(idx);
     SetIconName(ew->tab->selectedAnnotation, item);
     EnableSaveIfAnnotationsChanged(ew);
     MainWindowRerender(ew->tab->win);
@@ -741,9 +746,9 @@ static void DoColor(EditAnnotationsWindow* ew, Annotation* annot) {
     n = dimof(gAnnotsIsColorBackground);
     bool isBgCol = IsAnnotationTypeInArray(gAnnotsIsColorBackground, n, Type(annot));
     if (isBgCol) {
-        ew->staticColor->SetText(_TR("Background Color:"));
+        ew->staticColor->SetText(_TRA("Background Color:"));
     } else {
-        ew->staticColor->SetText(_TR("Color:"));
+        ew->staticColor->SetText(_TRA("Color:"));
     }
     ew->staticColor->SetIsVisible(true);
     ew->dropDownColor->SetIsVisible(true);
@@ -751,7 +756,7 @@ static void DoColor(EditAnnotationsWindow* ew, Annotation* annot) {
 
 static void ColorSelectionChanged(EditAnnotationsWindow* ew) {
     auto idx = ew->dropDownColor->GetCurrentSelection();
-    auto item = ew->dropDownColor->items.at(idx);
+    auto item = ew->dropDownColor->items.At(idx);
     auto col = GetDropDownColor(item);
     SetColor(ew->tab->selectedAnnotation, col);
     EnableSaveIfAnnotationsChanged(ew);
@@ -772,7 +777,7 @@ static void DoInteriorColor(EditAnnotationsWindow* ew, Annotation* annot) {
 
 static void InteriorColorSelectionChanged(EditAnnotationsWindow* ew) {
     auto idx = ew->dropDownInteriorColor->GetCurrentSelection();
-    auto item = ew->dropDownInteriorColor->items.at(idx);
+    auto item = ew->dropDownInteriorColor->items.At(idx);
     auto col = GetDropDownColor(item);
     SetInteriorColor(ew->tab->selectedAnnotation, col);
     EnableSaveIfAnnotationsChanged(ew);
@@ -813,7 +818,7 @@ static void UpdateUIForSelectedAnnotation(EditAnnotationsWindow* ew, Annotation*
     HidePerAnnotControls(ew);
     if (annot) {
         int itemNo = ew->annotations.Find(annot);
-        CrashIf(itemNo < 0);
+        ReportIf(itemNo < 0);
 
         DoRect(ew, annot);
         DoAuthor(ew, annot);
@@ -870,7 +875,7 @@ static void UpdateUIForSelectedAnnotation(EditAnnotationsWindow* ew, Annotation*
         // see https://github.com/sumatrapdfreader/sumatrapdf/issues/1701
         logf("UpdateUIForSelectedAnnotation: invalid annotPageNo (%d), should be <= than nPages (%d)\n", annotPageNo,
              nPages);
-        CrashIf(annotPageNo > nPages);
+        ReportIf(annotPageNo > nPages);
         return;
     }
 
@@ -887,13 +892,13 @@ static void UpdateUIForSelectedAnnotation(EditAnnotationsWindow* ew, Annotation*
 }
 
 static void ButtonSaveAttachment(EditAnnotationsWindow* ew) {
-    CrashIf(!ew->tab->selectedAnnotation);
+    ReportIf(!ew->tab->selectedAnnotation);
     // TODO: implement me
     MessageBoxNYI(ew->hwnd);
 }
 
 static void ButtonEmbedAttachment(EditAnnotationsWindow* ew) {
-    CrashIf(!ew->tab->selectedAnnotation);
+    ReportIf(!ew->tab->selectedAnnotation);
     // TODO: implement me
     MessageBoxNYI(ew->hwnd);
 }
@@ -932,7 +937,7 @@ void UpdateAnnotationsList(EditAnnotationsWindow* ew) {
 }
 
 static void ButtonDeleteHandler(EditAnnotationsWindow* ew) {
-    CrashIf(!ew->tab->selectedAnnotation);
+    ReportIf(!ew->tab->selectedAnnotation);
     DeleteSelectedAnnotation(ew);
 }
 
@@ -953,8 +958,14 @@ static MainWindow* gMainWindowForRender = nullptr;
 
 // TODO: there seems to be a leak
 static void ContentsChanged(EditAnnotationsWindow* ew) {
+    auto a = ew->tab->selectedAnnotation;
+    // TODO: saw a crash when this was null
+    ReportIf(!a);
+    if (!a) {
+        return;
+    }
     auto txt = ew->editContents->GetTextTemp();
-    SetContents(ew->tab->selectedAnnotation, txt);
+    SetContents(a, txt);
     EnableSaveIfAnnotationsChanged(ew);
 
     MainWindow* win = ew->tab->win;
@@ -1003,7 +1014,7 @@ static Static* CreateStatic(HWND parent, const char* s = nullptr) {
     args.text = s;
     args.font = GetAppFont();
     HWND hwnd = w->Create(args);
-    CrashIf(!hwnd);
+    ReportIf(!hwnd);
     return w;
 }
 
@@ -1070,7 +1081,7 @@ static void CreateMainLayout(EditAnnotationsWindow* ew) {
         args.font = fnt;
         auto w = new Edit();
         HWND hwnd = w->Create(args);
-        CrashIf(!hwnd);
+        ReportIf(!hwnd);
         w->maxDx = 150;
         w->onTextChanged = [ew]() { return ContentsChanged(ew); };
         ew->editContents = w;
@@ -1323,9 +1334,9 @@ static void CreateMainLayout(EditAnnotationsWindow* ew) {
         auto w = new Button();
         w->SetInsetsPt(8, 0, 0, 0);
         HWND hwnd = w->Create(args);
-        CrashIf(!hwnd);
+        ReportIf(!hwnd);
 
-        w->onClicked = [ew] { return ButtonSaveAttachment(ew); };
+        w->onClicked = mkFunc0(ButtonSaveAttachment, ew);
         ew->buttonSaveAttachment = w;
         vbox->AddChild(w);
     }
@@ -1339,9 +1350,9 @@ static void CreateMainLayout(EditAnnotationsWindow* ew) {
         auto w = new Button();
         w->SetInsetsPt(8, 0, 0, 0);
         HWND hwnd = w->Create(args);
-        CrashIf(!hwnd);
+        ReportIf(!hwnd);
 
-        w->onClicked = [ew] { return ButtonEmbedAttachment(ew); };
+        w->onClicked = mkFunc0(ButtonEmbedAttachment, ew);
         ew->buttonEmbedAttachment = w;
         vbox->AddChild(w);
     }
@@ -1355,12 +1366,12 @@ static void CreateMainLayout(EditAnnotationsWindow* ew) {
         auto w = new Button();
         w->SetInsetsPt(11, 0, 0, 0);
         HWND hwnd = w->Create(args);
-        CrashIf(!hwnd);
+        ReportIf(!hwnd);
 
         // TODO: doesn't work
         // w->SetTextColor(MkColor(0xff, 0, 0));
 
-        w->onClicked = [ew] { return ButtonDeleteHandler(ew); };
+        w->onClicked = mkFunc0(ButtonDeleteHandler, ew);
         ew->buttonDelete = w;
         vbox->AddChild(w);
     }
@@ -1380,10 +1391,10 @@ static void CreateMainLayout(EditAnnotationsWindow* ew) {
 
         auto w = new Button();
         HWND hwnd = w->Create(args);
-        CrashIf(!hwnd);
+        ReportIf(!hwnd);
 
         w->SetIsEnabled(false); // only enabled if there are changes
-        w->onClicked = [ew] { return ButtonSaveToCurrentPDFHandler(ew); };
+        w->onClicked = mkFunc0(ButtonSaveToCurrentPDFHandler, ew);
         ew->buttonSaveToCurrentFile = w;
         vbox->AddChild(w);
     }
@@ -1398,10 +1409,10 @@ static void CreateMainLayout(EditAnnotationsWindow* ew) {
         auto w = new Button();
         w->SetInsetsPt(8, 0, 0, 0);
         HWND hwnd = w->Create(args);
-        CrashIf(!hwnd);
+        ReportIf(!hwnd);
 
         w->SetIsEnabled(false); // only enabled if there are changes
-        w->onClicked = [ew] { return ButtonSaveToNewFileHandler(ew); };
+        w->onClicked = mkFunc0(ButtonSaveToNewFileHandler, ew);
         ew->buttonSaveToNewFile = w;
         vbox->AddChild(w);
     }
@@ -1412,13 +1423,14 @@ static void CreateMainLayout(EditAnnotationsWindow* ew) {
 }
 
 void ShowEditAnnotationsWindow(WindowTab* tab) {
-    CrashIf(!tab->AsFixed()->GetEngine());
+    ReportIf(!tab->AsFixed()->GetEngine());
     EditAnnotationsWindow* ew = tab->editAnnotsWindow;
     if (ew) {
         HwndMakeVisible(ew->hwnd);
         return;
     }
     ew = new EditAnnotationsWindow();
+    ew->onClose = OnClose;
     CreateCustomArgs args;
     HMODULE h = GetModuleHandleW(nullptr);
     WCHAR* iconName = MAKEINTRESOURCEW(GetAppIconID());

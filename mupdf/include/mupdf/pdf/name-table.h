@@ -1,4 +1,4 @@
-// Copyright (C) 2004-2023 Artifex Software, Inc.
+// Copyright (C) 2004-2024 Artifex Software, Inc.
 //
 // This file is part of MuPDF.
 //
@@ -30,6 +30,7 @@ PDF_MAKE_NAME("AA", AA)
 PDF_MAKE_NAME("AC", AC)
 PDF_MAKE_NAME("AESV2", AESV2)
 PDF_MAKE_NAME("AESV3", AESV3)
+PDF_MAKE_NAME("AF", AF)
 PDF_MAKE_NAME("AHx", AHx)
 PDF_MAKE_NAME("AP", AP)
 PDF_MAKE_NAME("AS", AS)
@@ -413,6 +414,7 @@ PDF_MAKE_NAME("Part", Part)
 PDF_MAKE_NAME("Pattern", Pattern)
 PDF_MAKE_NAME("PatternType", PatternType)
 PDF_MAKE_NAME("Perms", Perms)
+PDF_MAKE_NAME("PieceInfo", PieceInfo)
 PDF_MAKE_NAME("PolyLine", PolyLine)
 PDF_MAKE_NAME("PolyLineDimension", PolyLineDimension)
 PDF_MAKE_NAME("Polygon", Polygon)
@@ -523,6 +525,7 @@ PDF_MAKE_NAME("TR2", TR2)
 PDF_MAKE_NAME("TU", TU)
 PDF_MAKE_NAME("Table", Table)
 PDF_MAKE_NAME("Text", Text)
+PDF_MAKE_NAME("Thumb", Thumb)
 PDF_MAKE_NAME("TilingType", TilingType)
 PDF_MAKE_NAME("Times", Times)
 PDF_MAKE_NAME("Title", Title)

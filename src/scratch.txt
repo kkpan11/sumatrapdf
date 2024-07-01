@@ -1,9 +1,17 @@
+Ideas for refactorings:
+
+- change all size_t => int
+- change use of Str::Get() => Str::CStr() (or maybe make it Str() as in StrSpan?)
+- audit all str::Join() and path::Join() to see if could / should be *Temp()
+
+------------------------------------------------------------------
+
 static void ClearPixmap(fz_pixmap* pixmap) {
     auto stride = pixmap->stride;
     size_t dx = (size_t)pixmap->w;
     size_t dy = (size_t)pixmap->h;
     u8* samples = pixmap->samples;
-    CrashIf(pixmap->n != 3);
+    ReportIf(pixmap->n != 3);
     for (size_t y = 0; y < dy; y++) {
         u8* d = samples + (stride * y);
         for (size_t x = 0; x < dx; x++) {
@@ -25,6 +33,8 @@ static void ClearPixmap(fz_pixmap* pixmap) {
         }
     }
 }
+
+------------------------------------------------------------------
 
 // Select random files to test. We want to test each file type equally, so
 // we first group them by file extension and then select up to maxPerType
@@ -84,13 +94,54 @@ static void RandomizeFiles(StrVec& files, int maxPerType) {
     }
 }
 
-int idx = rand() % all->Size();
-if (i->stressTestMax > 0) {
+------------------------------------------------------------------
 
-DirTraverse(dirPath, true, [filter, &hasFiles, &paths](const char* filePath) -> bool {
-    if (IsStressTestSupportedFile(filePath, filter)) {
-        paths.Append(filePath);
-        hasFiles = true;
+StrVec2 ideas:
+- optimize for SetAt(): when removing last string from a page, free its memory (update currEnd)
+- implement StrVec2::InsertAt()
+
+------------------------------------------------------------------
+
+struct ClosureData;
+typedef void (*closureFunc)(ClosureData*);
+
+struct ClosureData {
+    closureFunc func;
+    virtual ~ClosureData() = 0;
+    virtual operator()() {
+        func(this);
     }
-    return true;
-});
+};
+
+template <typename T>
+ClosureData* newClosure(void (*func)(T*)) {
+    T* res = new T();
+    res->func = (closureFunc)func;
+    return res;
+}
+
+struct UpdateCheckData : ClosureData {
+    ~UpdateCheckData() override {
+    }
+};
+
+void updateCheck(UpdateCheckData* d) {
+    // ...
+    delete d;
+}
+
+auto res = newClosure<UpdateCheckData>(updateCheck);
+
+------------------------------------------------------------------
+
+Delegates ideas:
+https://github.com/rosbacke/delegate
+https://github.com/rosbacke/MCU-tools/tree/master/src/callback
+https://github.com/Naios/function2
+https://gist.github.com/twoscomplement/030818a6c38c5a983482dc3a385a3ab8
+https://www.open-std.org/jtc1/sc22/wg21/docs/papers/2018/p0792r3.html
+https://github.com/vittorioromeo/Experiments/blob/master/function_ref.cpp
+https://blog.stratifylabs.dev/device/2022-12-01-Callback-and-Lambdas-in-embedded-cpp/
+
+CmdOpenAttachment,,Open Attachment,ver 3.6+
+CmdSaveAttachment,,Save Attachment,ver 3.6+

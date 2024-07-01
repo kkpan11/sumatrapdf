@@ -44,7 +44,7 @@ struct PdfsyncPoint {
 class Pdfsync : public Synchronizer {
   public:
     Pdfsync(const char* syncfilename, EngineBase* engine) : Synchronizer(syncfilename), engine(engine) {
-        CrashIf(!str::EndsWithI(syncfilename, ".pdfsync"));
+        ReportIf(!str::EndsWithI(syncfilename, ".pdfsync"));
     }
 
     int DocToSource(int pageNo, Point pt, AutoFreeStr& filename, int* line, int* col) override;
@@ -68,7 +68,7 @@ class SyncTex : public Synchronizer {
     SyncTex(const char* syncfilename, EngineBase* engineIn) : Synchronizer(syncfilename) {
         engine = engineIn;
         scanner = nullptr;
-        CrashIf(!str::EndsWithI(syncfilename, ".synctex"));
+        ReportIf(!str::EndsWithI(syncfilename, ".synctex"));
     }
 
     ~SyncTex() override {
@@ -111,13 +111,13 @@ bool Synchronizer::NeedsToRebuildIndex() const {
 
 int Synchronizer::MarkIndexWasRebuilt() {
     needsToRebuildIndex = false;
-    WCHAR* path = ToWStrTemp(syncFilePath);
+    TempWStr path = ToWStrTemp(syncFilePath);
     _wstat(path, &syncfileTimestamp);
     return PDFSYNCERR_SUCCESS;
 }
 
 char* Synchronizer::PrependDir(const char* filename) const {
-    char* dir = path::GetDirTemp(syncFilePath);
+    TempStr dir = path::GetDirTemp(syncFilePath);
     return path::Join(dir, filename);
 }
 
@@ -364,7 +364,7 @@ int Pdfsync::DocToSource(int pageNo, Point pt, AutoFreeStr& filename, int* line,
     cmp.record = selected_record;
     PdfsyncLine* found =
         (PdfsyncLine*)bsearch(&cmp, lines.LendData(), lines.size(), sizeof(PdfsyncLine), cmpLineRecords);
-    CrashIf(!found);
+    ReportIf(!found);
     if (!found) {
         return PDFSYNCERR_NO_SYNC_AT_LOCATION;
     }
@@ -532,8 +532,8 @@ int SyncTex::RebuildIndexIfNeeded() {
 
     TempStr syncPathTemp = str::DupTemp(syncFilePath.Get());
 Repeat:
-    WCHAR* ws = ToWStrTemp(syncPathTemp);
-    AutoFreeStr pathAnsi = strconv::WstrToAnsi(ws);
+    TempWStr ws = ToWStrTemp(syncPathTemp);
+    AutoFreeStr pathAnsi = strconv::WStrToAnsi(ws);
     scanner = synctex_scanner_new_with_output_file(pathAnsi, nullptr, 1);
     if (scanner) {
         logfa("synctex_scanner_new_with_output_file: ok for pathAnsi '%s'\n", pathAnsi.Get());

@@ -27,9 +27,39 @@ Language Bindings
     </details>
 
 
-Auto-generated :title:`C++`, :title:`Python` and :title:`C#` versions of the :title:`MuPDF C API` are available.
+Overview
+---------------------------------------------------------------
 
-These :title:`APIs` are currently a beta release and liable to change.
+Auto-generated abstracted :title:`C++`, :title:`Python` and :title:`C#`
+versions of the :title:`MuPDF C API` are available.
+
+*
+  The C++ API is machine-generated from the C API header files and adds various
+  abstractions such as automatic contexts and automatic reference counting.
+
+*
+  The Python and C# APIs are generated from the C++ API using SWIG, so
+  automatically include the C++ API's abstractions.
+
+.. graphviz::
+
+    digraph
+    {
+      size="4,4";
+      labeljust=l;
+
+      "MuPDF C API" [shape="rectangle"]
+      "MuPDF C++ API" [shape="rectangle"]
+      "SWIG" [shape="oval"]
+      "MuPDF Python API" [shape="rectangle"]
+      "MuPDF C# API" [shape="rectangle"]
+
+      "MuPDF C API" -> "MuPDF C++ API" [label=" Parse C headers with libclang,\l generate abstractions.\l"]
+
+      "MuPDF C++ API" -> "SWIG" [label=" Parse C++ headers with SWIG."]
+      "SWIG" -> "MuPDF Python API"
+      "SWIG" -> "MuPDF C# API"
+    }
 
 
 The C++ MuPDF API
@@ -59,7 +89,7 @@ The MuPDF C API is provided as low-level C++ functions with `ll_` prefixes.
 Class-aware C++ API
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-C++ wrapper classes wrap most `fz_*` and `pdf_*` C structs.
+C++ wrapper classes wrap most `fz_*` and `pdf_*` C structs:
 
 * Class names are camel-case versions of the wrapped struct's
   name, for example `fz_document`'s wrapper class is `mupdf::FzDocument`.
@@ -69,7 +99,7 @@ C++ wrapper classes wrap most `fz_*` and `pdf_*` C structs.
   class instances can be treated as values and copied arbitrarily.
 
 Class-aware functions and methods take and return wrapper class instances
-instead of MuPDF C structs.
+instead of MuPDF C structs:
 
 * No `fz_context*` arguments.
 
@@ -227,8 +257,8 @@ environmental variables:
 
 * **MUPDF_check_error_stack**
 
-    If `1`, generated code outputs a diagnostic if a MuPDF function changes the
-    current `fz_context`'s error stack depth.
+  If `1`, generated code outputs a diagnostic if a MuPDF function changes the
+  current `fz_context`'s error stack depth.
 
 * **MUPDF_trace**
 
@@ -283,7 +313,6 @@ The Python and C# MuPDF APIs
 * A Python module called `mupdf`.
 * A C# namespace called `mupdf`.
 
-  * C# bindings are experimental as of 2021-10-14.
 * Auto-generated from the C++ MuPDF API using SWIG, so inherits the abstractions of the C++ API:
 
   * No `fz_context*` arguments.
@@ -295,7 +324,7 @@ The Python and C# MuPDF APIs
 
       fz_buffer *fz_read_best(fz_context *ctx, fz_stream *stm, size_t initial, int *truncated);
 
-  The class-aware Python wrapper is:
+  The class-aware Python wrapper is::
 
       mupdf.fz_read_best(stm, initial)
 
@@ -321,7 +350,6 @@ The Python and C# MuPDF APIs
 
 * Uses SWIG Director classes to allow C function pointers in MuPDF structs to call Python code.
 
-  * This has not been tested on C#.
 
 Installing the Python mupdf module using `pip`
 ---------------------------------------------------------------
@@ -366,55 +394,55 @@ More detailed usage of the Python API can be found in:
 * `scripts/mutool_draw.py <https://git.ghostscript.com/?p=mupdf.git;a=blob;f=scripts/mutool_draw.py>`_
 
 
-**Example Python code that shows all available information about a document's Stext blocks, lines and characters.**
+**Example Python code that shows all available information about a document's Stext blocks, lines and characters**:
 
-  |expand_begin|
-  ::
+|expand_begin|
+::
 
-      #!/usr/bin/env python3
+    #!/usr/bin/env python3
 
-      import mupdf
+    import mupdf
 
-      def show_stext(document):
-          '''
-          Shows all available information about Stext blocks, lines and characters.
-          '''
-          for p in range(document.fz_count_pages()):
-              page = document.fz_load_page(p)
-              stextpage = mupdf.FzStextPage(page, mupdf.FzStextOptions())
-              for block in stextpage:
-                  block_ = block.m_internal
-                  log(f'block: type={block_.type} bbox={block_.bbox}')
-                  for line in block:
-                      line_ = line.m_internal
-                      log(f'    line: wmode={line_.wmode}'
-                              + f' dir={line_.dir}'
-                              + f' bbox={line_.bbox}'
-                              )
-                      for char in line:
-                          char_ = char.m_internal
-                          log(f'        char: {chr(char_.c)!r} c={char_.c:4} color={char_.color}'
-                                  + f' origin={char_.origin}'
-                                  + f' quad={char_.quad}'
-                                  + f' size={char_.size:6.2f}'
-                                  + f' font=('
-                                      +  f'is_mono={char_.font.flags.is_mono}'
-                                      + f' is_bold={char_.font.flags.is_bold}'
-                                      + f' is_italic={char_.font.flags.is_italic}'
-                                      + f' ft_substitute={char_.font.flags.ft_substitute}'
-                                      + f' ft_stretch={char_.font.flags.ft_stretch}'
-                                      + f' fake_bold={char_.font.flags.fake_bold}'
-                                      + f' fake_italic={char_.font.flags.fake_italic}'
-                                      + f' has_opentype={char_.font.flags.has_opentype}'
-                                      + f' invalid_bbox={char_.font.flags.invalid_bbox}'
-                                      + f' name={char_.font.name}'
-                                      + f')'
-                                  )
+    def show_stext(document):
+        '''
+        Shows all available information about Stext blocks, lines and characters.
+        '''
+        for p in range(document.fz_count_pages()):
+            page = document.fz_load_page(p)
+            stextpage = mupdf.FzStextPage(page, mupdf.FzStextOptions())
+            for block in stextpage:
+                block_ = block.m_internal
+                log(f'block: type={block_.type} bbox={block_.bbox}')
+                for line in block:
+                    line_ = line.m_internal
+                    log(f'    line: wmode={line_.wmode}'
+                            + f' dir={line_.dir}'
+                            + f' bbox={line_.bbox}'
+                            )
+                    for char in line:
+                        char_ = char.m_internal
+                        log(f'        char: {chr(char_.c)!r} c={char_.c:4} color={char_.color}'
+                                + f' origin={char_.origin}'
+                                + f' quad={char_.quad}'
+                                + f' size={char_.size:6.2f}'
+                                + f' font=('
+                                    +  f'is_mono={char_.font.flags.is_mono}'
+                                    + f' is_bold={char_.font.flags.is_bold}'
+                                    + f' is_italic={char_.font.flags.is_italic}'
+                                    + f' ft_substitute={char_.font.flags.ft_substitute}'
+                                    + f' ft_stretch={char_.font.flags.ft_stretch}'
+                                    + f' fake_bold={char_.font.flags.fake_bold}'
+                                    + f' fake_italic={char_.font.flags.fake_italic}'
+                                    + f' has_opentype={char_.font.flags.has_opentype}'
+                                    + f' invalid_bbox={char_.font.flags.invalid_bbox}'
+                                    + f' name={char_.font.name}'
+                                    + f')'
+                                )
 
-      document = mupdf.FzDocument('foo.pdf')
-      show_stext(document)
+    document = mupdf.FzDocument('foo.pdf')
+    show_stext(document)
 
-  |expand_end|
+|expand_end|
 
 Basic PDF viewers written in Python and C#
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -425,358 +453,6 @@ Basic PDF viewers written in Python and C#
 
   * `./scripts/mupdfwrap.py -b all --test-python-gui`
   * `./scripts/mupdfwrap.py -b --csharp all --test-csharp-gui`
-
-Changelog
----------------------------------------------------------------
-
-[Note that this is only for changes to the generation of the C++/Python/C#
-APIs; changes to the main MuPDF API are not detailed here.]
-
-
-* **2023-11-16**:
-
-    * Fixed debug builds on Windows.
-    * Fixed 32-bit builds on Windows.
-    * Fixed cross-build to arm64 on MacOS.
-    * Fixed unsafe custom fz_search_page2().
-    * Added custom fz_highlight_selection2().
-    * Added debug diagnostics to Director `use_virtual_*()` methods.
-    * Various fixes for Pyodide builds.
-    * Use version numbers in names of shared libraries.
-    * Added custom wrapping of struct pdf_clean_options.
-    * Use $CXX if defined when building bindings (not Windows).
-
-
-* **2023-07-13**:
-
-  * Improved generation of extra/customised functions and methods.
-
-    Instead of adding custom C++/Python/C# code, we instead inject new C++
-    functions as though they were part of the MuPDF C API when parsing MuPDF C
-    headers. Thus customised functions are automatically wrapped and available
-    as low-level functions, class-aware functions and class methods.
-
-
-* **2023-05-02**:
-
-  * Improved implementation of Python-specific wrappers:
-
-    * Consistently use low-level wrappers to implement high-level wrappers.
-    * Added missing low-level wrappers.
-
-      * `ll_fz_buffer_storage_memoryview()`
-      * `ll_fz_fill_text2()`
-      * `ll_fz_pixmap_copy()`
-      * `ll_fz_parse_page_range_orig()`
-      * `ll_fz_format_output_path()`
-      * `ll_fz_buffer_extract()`
-      * `ll_fz_buffer_extract_copy()`
-      * `ll_fz_new_buffer_from_copied_data()`
-      * `ll_pdf_dict_getl()`
-      * `ll_pdf_dict_putl()`
-      * `ll_fz_fill_text()`
-      * `ll_fz_pixmap_samples_memoryview()`
-
-    * Renamed `mupdf.python_bytes_data()` to `mupdf.python_buffer_data()`
-      because it works on any instance that supports the Python Buffer
-      interface.
-    * Renamed `python_buffer_to_memoryview()` to
-      `fz_buffer_storage_memoryview()`, because it uses a MuPDF `fz_buffer`,
-      not a Python buffer.
-    * Added `ll_fz_pixmap_copy_raw()` for copying raw sample data directly into
-      a `fz_pixmap`.
-    * In wrappers for `pdf_dict_getl()` and `pdf_dict_putl()`, generate
-      diagnostics if variadic args are the wrong type.
-    * Renamed `fz_pixmap_samples2()` to `ll_fz_pixmap_samples_memoryview()`.
-    * Added `fz_warn()`, same as `ll_fz_wrap()`.
-
-  * Fixes for MacOS and improved finding of struct members.
-  * Give Python and C# access to arrays of floats; e.g. for `fz_stroke_state`'s
-    `float dash_list[32];`.
-  * Updated bindings to cope with recent rename `pdf_field_name()` =>
-    `pdf_load_field_name()`.
-  * `MUPDF_trace` also enables
-    `fz_clone_context()`/`fz_new_context()`/`fz_drop_context()` diagnostics.
-  * Disabled questionable diagnostics about memory leaks.
-  * In `fz_compressed_buffer` class wrapper, give access to
-    `m_internal->buffer`.
-  * If Python callback raises an exception, add a Python backtrace to the
-    exception text.
-  * Allow building with Visual Studio 2022 without VS-2019 v142 tools
-    installed. See new `--vs-upgrade 0|1` option.
-  * Also use pdf_new_*() as constructors of `fz_*` structs where applicable.
-    For example this adds `pdf_new_stext_page_from_annot()` as a constructor of
-    `fz_stext_page`.
-  * Use new `scripts/wrap/wdev.py` to find C# compiler `csc.exe` on Windows.
-  * Fixed handling of functions that return `const fz_foo*`.
-  * Use our own handling of out-params instead of SWIG.
-  * Fixes for use with libclang-16.0.0
-
-* **2023-02-14**:
-
-  * Simplified builds by requiring a standalone libclang (typically pypi.org's
-    libclang in a Python venv) and fixed various issues with using latest
-    libclang.
-  * Added test for exceptions from Python SWIG Director callbacks.
-
-* **2023-02-03**:
-
-  * Provide a default constructor for all wrapper classes.
-  * Added Python `__repr__()` methods for POD classes, identical to the
-    existing `__str__()` methods.
-  * Fixed handling of exceptions in Python SWIG Director callbacks.
-  * Fixed wrapping of PDF filters.
-
-* **2023-01-20**:
-
-  * Don't disable SWIG Directors on Windows.
-  * Show warnings if env settings (e.g. `MUPDF_trace`) will be ignored
-    because we are a release build.
-  * Added Python support for MuPDF Stories.
-
-* **2023-01-12**: New release of Python package **mupdf-1.21.1.20230112.1504**
-  (from **mupdf-1.21.x** git 04c75ec9db31), with pre-built Wheels for Windows and
-  Linux. See: https://pypi.org/project/mupdf
-
-  * Reduced size of Python sdist by excluding some test directories.
-  * Python installation with `pip` will now automatically install
-    `libclang` and `swig`.
-  * Added Windows-specific documentation.
-  * Fixes for Windows builds.
-
-* **2022-11-23**:
-
-  * Avoid need to specify `LD_LIBRARY_PATH` on Unix by using `rpath`.
-  * Allow misc prefixes in build directory.
-  * Added accessors to fz_text_span wrapper class. This simplifies use from
-    Python, e.g. returning class wrappers for .font and .trm members, and
-    giving access to the .items[] array.
-  * Improved control over single-threaded behaviour.
-  * Fixed python wrappers for `fz_set_warning_callback()` and
-    `fz_set_error_callback()`.
-  * Fixed implementation of `ll_pdf_set_annot_color()`.
-
-
-* **2022-10-21**:
-
-  * Document that global instances of wrapper classes are not supported.
-  * Python: provide class-aware out-param wrappers.
-  * Generate `operator==` and `operator!=` for POD structs and wrapper classes.
-  * Moved `operator<<` into top-level namespace.
-  * Document that we require the `clang` package on Linux when building.
-  * Disable unhelpful SWIG warnings when building.
-  * Support for calling `fz_document_handler` fnptrs in C++ API.
-  * Work around Memento build problem on Linux.
-  * Fixed some leaks by improving detection of functions returning kept/borrowed references.
-  * Fixed handling of kept/borrowed references in Python/C# functions with out-params.
-
-* **2022-08-29**: Simplified naming of C++/Python/C# classes and functions.
-
-  * Don't remove leading `fz_` from function/method names.
-  * For low-level wrappers, add `ll_` prefix to the original name; don't
-    remove initial `fz_`; don't add `p` prefix for `pdf_*()` wrappers.
-  * For class-aware wrapper functions, use original C name; don't use `m` prefix.
-  * Include initial `Fz` prefix for wrapper classes of `fz_*` structs.
-
-  So new naming scheme is:
-
-  * Low-level wrappers: prepend `ll_` to the full MuPDF C function name.
-  * Wrapper class names: convert the full struct name to camel-case.
-  * Wrapper class methods: use the full wrapped MuPDF C function name.
-  * Class-aware wrappers: use the full wrapped MuPDF C function name.
-
-* **2022-5-11**: Documented the experimental C# API.
-
-* **2022-3-26**: New release of Python package **mupdf-1.19.0.20220326.1214**
-  (from **mupdf-1.19.0** git 466e06fc7e01), with pre-built Wheels for Windows and
-  Linux. See: https://pypi.org/project/mupdf/
-
-  * Fixed SWIG Directors wrapping classes on Windows.
-
-
-* **2022-3-23**: New release of Python package **mupdf-1.19.0.20220323.1255** (from
-  **mupdf-1.19.0** git 58e2b82bf7d1e7), with pre-built Wheels for Windows and
-  Linux. See: https://pypi.org/project/mupdf
-
-  **Details**
-  |expand_begin|
-
-  * Use SWIG Director classes to support MuPDF structs that contain fn
-    pointers. This allows MuPDF to call Python callback code. [.line-through]#Only
-    available on Unix at the moment.#
-
-    * This allows us to provide Python wrappers for `fz_set_warning_callback()`
-      and `fz_set_error_callback()`.
-
-  * Added alternative wrappers for MuPDF functions in the form of free-standing
-    functions that operate on our wrapper classes. Useful when porting existing
-    code to Python, and generally as a non-class-based API that still gives
-    automatic handling of reference counting. New functions have same name as
-    underlying MuPDF function with a `m` prefix; they do not take a `fz_context`
-    arg and take/return references to wrapper classes instead of pointers to MuPDF
-    structs.
-
-    * Class methods now call these new free-standing wrappers.
-
-  * Various improvements to enums and non-copyable class wrappers.
-
-  * Use `/** ... */` comments in generated code so visible to Doxygen.
-
-  * Improvements to and fixes to reference counting.
-
-    * Use MuPDF naming conventions for detection of MuPDF functions that return
-      borrowed references.
-
-    * Improved detection of whether a MuPDF struct uses reference counting.
-
-    * Fixed some reference counting issues when handling out-params.
-
-  * Added optional runtime ref count checking.
-
-  * For fns that return raw unsigned char array, provide C++ wrappers that
-    return a `std::vector<unsigned char>`. This works much better with SWIG.
-
-  * Allow construction of `Document` from `PdfDocument`.
-
-  * Allow writes to `PdfWriteOptions::opwd_utf8` and
-    `PdfWriteOptions::upwd_utf8`.
-
-  * Added `Page::doc()` to return wrapper for `.doc` member.
-
-  * Added `PdfPage::super()` to return `Page` wrapper for `.super`.
-
-  * Added `PdfDocument::doc()` to return wrapper for `.doc` member.
-
-  * Added `PdfObj::obj()` to return wrapper for `.obj` member.
-
-  * Made Python wrappers for `fz_fill_text()` take Python tuple/list for `float*
-    color` arg.
-
-  * Improved wrapping of `pdf_lexbuf`.
-
-  * Added `Page` downcast constructor from `PdfPage`.
-
-  * Expose `pdf_widget_type` enum.
-
-  * Improved python bindings for `*dict_getl()` and `*dict_putl()`. We now also
-    provide `mpdf_dict_getl()` etc handling variable number of args.
-
-  * Improvements to wrapping of `pdf_filter_options`, `pdf_redact_options`,
-    `fz_pixmap`, `pdf_set_annot_color`, `pdf_obj`.
-
-  * Allow direct use of `PDF_ENUM_NAME_*` enums as `PdfObj`'s in Python.
-
-  * Added wrappers for `pdf_annot_type()` and `pdf_string_from_annot_type()`.
-
-  * `Buffer.buffer_storage()` raises an exception with useful error info (it is
-    not possible to use it from SWIG bindings).
-
-  * Added various fns to give Python access to some raw pointer values, e.g. for
-    passing to `mupdf.new_buffer_from_copied_data()`.
-
-  * Avoid excluding class method wrappers for `pdf_*()` fns in python.
-
-  |expand_end|
-
-* **2022-02-05**: Uploaded Doxygen/Pydoc documentation for the C, C++ and Python
-  APIs, from latest development tree.
-
-* **2021-09-29**: Released Python bindings for **mupdf-1.19.0** (git 61b63d734a7)
-  to pypi.org (**mupdf 1.19.0.20210929.1226**) with pre-built Wheels for Windows
-  and Linux.
-
-* **2021-08-05**: Released Python package **mupdf-1.18.0.20210805.1716** on
-  pypi.org with pre-built Wheels for Windows and Linux.
-
-  * Improved constructors of `fz_document_writer` wrapper class
-    `DocumentWriter`.
-
-  * Fixed `operator<<` for POD C structs - moved from `mupdf` namespace to
-    top-level.
-
-  * Added `scripts/mupdfwrap_gui.py` - a simple demo Python PDF viewer.
-
-  * Cope with `fz_paint_shade()`'s new `fz_shade_color_cache **cache` arg.
-
-* **2021-05-21**: First release of Python package, **mupdf-1.18.0.20210521.1738**,
-  on pypi.org with pre-built Wheels for Windows and Linux.
-
-  **Details**
-  |expand_begin|
-  * Changes that apply to both C++ and Python bindings:
-
-    * Improved access to metadata - added `Document::lookup_metadata()`
-      overload that returns a `std::string`. Also provided `extern const
-      std::vector<std::string> metadata_keys;` containing a list of the supported
-      keys.
-
-    * Iterating over `Outline`'s now returns `OutlineIterator` objects so that
-      depth information is also available.
-
-    * Fixed a reference-counting bug in iterators.
-
-    * `Page::search_page()` now returns a `std::vector<Quad>`.
-
-    * `PdfDocument` now has a default constructor which uses
-      `pdf_create_document()`.
-
-    * Include wrappers for functions that return `fz_outline*`, e.g. `Outline
-      Document::load_outline();`.
-
-    * Removed potentially slow call of `getenv("MUPDF_trace")` in every C++
-      wrapper function.
-
-    * Removed special-case naming of wrappers for `fz_run_page()` - they are now
-      called `mupdf::run_page()` and `mupdf::Page::run_page()`, not `mupdf::run()`
-      etc.
-
-    * Added text representation of POD structs.
-
-    * Added support for 32 and 64-bit Windows.
-    * Many improvements to C++ and Python code generation.
-
-  * Changes that apply only to Python:
-
-    * Improved handling of out-parameters:
-
-      * If a function or method has out-parameters we now systematically return a
-        Python tuple containing any return value followed by the out-parameters.
-
-      * Don't treat `FILE*` or pointer-to-const as an out-parameter.
-
-    * Added methods for getting the content of a `mupdf.Buffer` as a Python
-      `bytes` instance.
-
-    * Added Python access to nested unions in `fz_stext_block` wrapper class
-      `mupdf.StextBlock`.
-
-    * Allow the MuPDF Python bindings to be installed with `pip`.
-
-      * This uses a source distribution of mupdf that has been uploaded to
-        `pypi.org` in the normal way.
-
-      * Installation involves compiling the C, C++ and Python bindings so will
-        take a few minutes. It requires SWIG to be installed.
-
-      * Pre-built wheels are not currently provided.
-
-    * Write generated C++ information into Python pickle files to allow building
-      on systems without clang-python.
-
-    * Various changes to allow building in Python "Manylinux" containers.
-
-    * Allow Python access to nested unions in `fz_stext_block` wrapper. SWIG
-      doesn't handle nested unions so instead we provide accessor methods in our
-      generated C++ class.
-
-    * Added accessors to `fz_image`'s wrapper class.
-
-    * Improved generated accessor methods - e.g. ignore functions and function
-      pointers and return `int` instead of `int8_t` to avoid SWIG getting confused.
-
-  |expand_end|
-
-* **2020-10-07**: Experimental release of C++ and Python bindings in MuPDF-1.18.0.
 
 
 Building the C++, Python and C# MuPDF APIs from source
@@ -1057,6 +733,18 @@ Notes
 
     * `--test-cpp`
 
+* C++ bindings and `NDEBUG`.
+
+  When building client code that uses the C++ bindings, `NDEBUG` must
+  be defined/undefined to match how the C++ bindings were built. By
+  default the C++ bindings are a release build with `NDEBUG` defined, so
+  usually client code must also be built with `NDEBUG` defined. Otherwise
+  there will be build errors for missing C++ destructors, for example
+  `mupdf::FzMatrix::~FzMatrix()`.
+
+  [This is because we define some destructors in debug builds only; this allows
+  internal reference counting checks.]
+
 * Specifying the location of Visual Studio's `devenv.com` on Windows.
 
   `scripts/mupdfwrap.py` looks for Visual Studio's `devenv.com` in
@@ -1207,7 +895,6 @@ All generated files are within the MuPDF checkout.
 * Files required at runtime are in `build/shared-release/`.
 
 **Details**
-|expand_begin|
 
 .. code-block:: text
 
@@ -1253,14 +940,14 @@ All generated files are within the MuPDF checkout.
                 generated.pickle    [Information from clang parse step, used by later stages.]
                 windows_mupdf.def   [List of MuPDF public global data, used when linking mupdfcpp.dll.]
 
-            python/ [SWIG Python input/output files.]
-                mupdfcpp_swig.cpp
-                mupdfcpp_swig.i
+            python/ [SWIG Python files.]
+                mupdfcpp_swig.cpp   [SWIG output file.]
+                mupdfcpp_swig.i     [SWIG input file.]
 
-            csharp/  [SWIG C# input/output files.]
-                mupdf.cs
-                mupdfcpp_swig.cpp
-                mupdfcpp_swig.i
+            csharp/  [SWIG C# files.]
+                mupdf.cs            [SWIG output file, no out-params helpers.]
+                mupdfcpp_swig.cpp   [SWIG output file.]
+                mupdfcpp_swig.i     [SWIG input file.]
 
             win32/
                 Release/    [Windows 32-bit .dll, .lib, .exp, .pdb etc.]
@@ -1272,8 +959,6 @@ All generated files are within the MuPDF checkout.
                         mupdfpyswig.lib
 
             win32-vs-upgrade/   [used instead of win32/ if PYMUPDF_SETUP_MUPDF_VS_UPGRADE is '1'.]
-
-|expand_end|
 
 
 Windows-specifics
@@ -1573,13 +1258,13 @@ functions and class methods.]
         fz_install_load_system_font_funcs_args class wrapper instance. */
         FZ_DATA extern void* fz_install_load_system_font_funcs2_state;
 
-        /** Helper for calling a `fz_document_open_fn` function pointer via Swig
-        from Python/C#. */
-        FZ_FUNCTION fz_document* fz_document_open_fn_call(fz_context* ctx, fz_document_open_fn fn, fz_stream* stream, fz_stream* accel, fz_archive* dir);
+        /** Helper for calling `fz_document_handler::open` function pointer via
+        Swig from Python/C#. */
+        FZ_FUNCTION fz_document* fz_document_handler_open(fz_context* ctx, const fz_document_handler *handler, fz_stream* stream, fz_stream* accel, fz_archive* dir);
 
-        /** Helper for calling a `fz_document_recognize_content_fn` function
+        /** Helper for calling a `fz_document_handler::recognize` function
         pointer via Swig from Python/C#. */
-        FZ_FUNCTION int fz_document_recognize_content_fn_call(fz_context* ctx, fz_document_recognize_content_fn fn, fz_stream* stream, fz_archive* dir);
+        FZ_FUNCTION int fz_document_handler_recognize(fz_context* ctx, const fz_document_handler *handler, const char *magic);
 
         /** Swig-friendly wrapper for pdf_choice_widget_options(), returns the
         options directly in a vector. */
@@ -1609,6 +1294,10 @@ functions and class methods.]
 
         /** Swig-friendly wrapper for pdf_subset_fonts(). */
         void pdf_subset_fonts2(fz_context *ctx, pdf_document *doc, const std::vector<int>& pages);
+
+        /** Swig-friendly and typesafe way to do fz_snprintf(fmt, value). `fmt`
+        must end with one of 'efg' otherwise we throw an exception. */
+        std::string fz_format_double(fz_context* ctx, const char* fmt, double value);
 
 
 Python/C# bindings details

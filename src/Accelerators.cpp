@@ -266,7 +266,7 @@ static WORD ParseVirtKey(const char* s) {
     if (idx < 0) {
         return 0;
     }
-    CrashIf(idx >= dimof(gVirtKeysIds));
+    ReportIf(idx >= dimof(gVirtKeysIds));
     WORD keyId = gVirtKeysIds[idx];
     return keyId;
 }
@@ -597,17 +597,109 @@ static HACCEL gAccelTables[3] = {
     nullptr, // for tree view
 };
 
+// some commands can accept arguments. For those we have to create CommandWithArg that
+// binds original command id and an arg and creates a unique command id
+// we return -1 if unkown command or command doesn't take an argument or argument is invalid
+static int ParseCommand(char* cmdWithArg) {
+    int cmdId = GetCommandIdByName(cmdWithArg);
+    if (cmdId > 0) {
+        return cmdId;
+    }
+    // could be command with arg
+    bool hasArg = str::FindChar(cmdWithArg, ' ') != nullptr;
+    if (!hasArg) {
+        return -1;
+    }
+    StrVec parts;
+    Split(parts, cmdWithArg, " ", true);
+    char* cmdName = parts.At(0);
+    cmdId = GetCommandIdByName(cmdName);
+    if (cmdId < 0) {
+        // TODO: make it a notification
+        logf("MaybeCreateCommandWithArg: unknown cmd name '%s'\n", cmdName);
+    }
+    CommandWithArg* cmd = nullptr;
+    switch (cmdId) {
+        case CmdCreateAnnotText:
+        case CmdCreateAnnotLink:
+        case CmdCreateAnnotFreeText:
+        case CmdCreateAnnotLine:
+        case CmdCreateAnnotSquare:
+        case CmdCreateAnnotCircle:
+        case CmdCreateAnnotPolygon:
+        case CmdCreateAnnotPolyLine:
+        case CmdCreateAnnotHighlight:
+        case CmdCreateAnnotUnderline:
+        case CmdCreateAnnotSquiggly:
+        case CmdCreateAnnotStrikeOut:
+        case CmdCreateAnnotRedact:
+        case CmdCreateAnnotStamp:
+        case CmdCreateAnnotCaret:
+        case CmdCreateAnnotInk:
+        case CmdCreateAnnotPopup:
+        case CmdCreateAnnotFileAttachment: {
+            // color argument
+            int n = parts.Size();
+            bool openEdit = false;
+            ParsedColor col;
+            const char* colStr = "";
+            for (int i = 1; i < n; i++) {
+                char* arg = parts.At(i);
+                if (str::EqI(arg, "openedit")) {
+                    openEdit = true;
+                    continue;
+                }
+                if (col.parsedOk) {
+                    continue;
+                }
+                ParseColor(col, arg);
+                colStr = arg;
+            }
+            // must have valid color, "openedit" is optional
+            if (!col.parsedOk) {
+                logf("MaybeCreateCommandWithArg: '%s' is not a valid color argument to cmd '%s'\n", colStr, cmdName);
+                return -1;
+            }
+            cmd = CreateCommandWithArg(cmdId);
+            cmd->argColor = col;
+            cmd->argBool = openEdit;
+            break;
+        }
+        case CmdScrollUp:
+        case CmdScrollDown:
+        case CmdGoToNextPage:
+        case CmdGoToPrevPage: {
+            // int argument
+            char* arg = parts.At(1);
+            int n = ParseInt(arg);
+            // note: this validation currently applies to all commands
+            // but might need to be modified for other commands
+            if (n <= 0 || n > 100) {
+                return -1;
+            }
+            cmd = CreateCommandWithArg(cmdId);
+            cmd->argInt = n;
+            break;
+        }
+        default: {
+            logf("MaybeCreateCommandWithArg: cmd '%s' doesn't accept arguments\n", cmdName);
+        }
+    }
+    if (!cmd) {
+        return -1;
+    }
+    return cmd->id;
+}
+
 /* returns a pointer to HACCEL so that we can update it and message loop will use
 the latest version */
 static void CreateSumatraAcceleratorTable() {
-    CrashIf(gAccelTables[0] || gAccelTables[1] || gAccelTables[2]);
+    ReportIf(gAccelTables[0] || gAccelTables[1] || gAccelTables[2]);
 
     int nBuiltIn = (int)dimof(gBuiltInAccelerators);
 
     int nCustomShortcuts = 0;
-    if (gGlobalPrefs->shortcuts) {
-        nCustomShortcuts = gGlobalPrefs->shortcuts->Size();
-    }
+    nCustomShortcuts = gGlobalPrefs->shortcuts->Size();
 
     // build a combined accelerator table of those defined in settings file
     // and built-in shortcuts. Custom shortcuts over-ride built-in
@@ -626,11 +718,8 @@ static void CreateSumatraAcceleratorTable() {
     int nTreeViewAccels = 0;
 
     for (Shortcut* shortcut : *gGlobalPrefs->shortcuts) {
-        char* cmd = shortcut->cmd;
-        int cmdId = GetCommandIdByName(cmd);
+        int cmdId = ParseCommand(shortcut->cmd);
         if (cmdId < 0) {
-            // TODO: make it a notification
-            logf("CreateSumatraAcceleratorTable: unknown cmd name '%s'\n", cmd);
             continue;
         }
         ACCEL accel = {};
@@ -673,11 +762,11 @@ static void CreateSumatraAcceleratorTable() {
     gAccelsCount = nAccels;
 
     gAccelTables[0] = CreateAcceleratorTableW(gAccels, gAccelsCount);
-    CrashIf(gAccelTables[0] == nullptr);
+    ReportIf(gAccelTables[0] == nullptr);
     gAccelTables[1] = CreateAcceleratorTableW(editAccels, nEditAccels);
-    CrashIf(gAccelTables[1] == nullptr);
+    ReportIf(gAccelTables[1] == nullptr);
     gAccelTables[2] = CreateAcceleratorTableW(treeViewAccels, nTreeViewAccels);
-    CrashIf(gAccelTables[2] == nullptr);
+    ReportIf(gAccelTables[2] == nullptr);
 
     free(toFreeAccels);
 }

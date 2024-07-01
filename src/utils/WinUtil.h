@@ -42,6 +42,8 @@ bool GetOsVersion(OSVERSIONINFOEX& ver);
 TempStr OsNameFromVerTemp(const OSVERSIONINFOEX& ver);
 TempStr GetWindowsVerTemp();
 
+TempStr GetEnvVariableTemp(const char*);
+
 TempStr GetLastErrorStrTemp(DWORD err = 0);
 void LogLastError(DWORD err = 0);
 void DbgOutLastError(DWORD err = 0);
@@ -113,9 +115,7 @@ void FillRect(HDC, const Rect&, HBRUSH);
 void FillRect(HDC hdc, const Rect&, COLORREF);
 void DrawLine(HDC, const Rect&);
 
-void DrawCenteredText(HDC hdc, Rect r, const WCHAR* txt, bool isRTL = false);
 void DrawCenteredText(HDC hdc, Rect r, const char* txt, bool isRTL = false);
-void DrawCenteredText(HDC, const RECT& r, const WCHAR* txt, bool isRTL = false);
 Size HwndMeasureText(HWND hwnd, const char* txt, HFONT font = nullptr);
 int FontDyPx(HWND hwnd, HFONT hfont);
 
@@ -287,7 +287,7 @@ double GetProcessRunningTime();
 
 void RunNonElevated(const char* exePath);
 void VariantInitBstr(VARIANT& urlVar, const WCHAR* s);
-ByteSlice LoadDataResource(int resId);
+StrSpan LoadDataResource(int resId);
 bool DDEExecute(const WCHAR* server, const WCHAR* topic, const WCHAR* command);
 
 void RectInflateTB(RECT& r, int top, int bottom);
@@ -317,9 +317,13 @@ size_t HwndGetTextLen(HWND hwnd);
 TempWStr HwndGetTextWTemp(HWND hwnd);
 TempStr HwndGetTextTemp(HWND hwnd);
 void HwndSetText(HWND, const char* s);
-void HwndSetText(HWND, const WCHAR*);
 bool HwndHasFrameThickness(HWND hwnd);
 bool HwndHasCaption(HWND hwnd);
+
+void HwndSetDlgItemText(HWND, int, const char*);
+
+void CbAddString(HWND, const char*);
+void CbSetCurrentSelection(HWND, int);
 
 HICON HwndGetIcon(HWND);
 HICON HwndSetIcon(HWND, HICON);
@@ -353,3 +357,19 @@ TempStr HGLOBALToStrTemp(HGLOBAL h, bool isUnicode);
 HGLOBAL MemToHGLOBAL(void* src, int n, UINT flags = GMEM_MOVEABLE);
 HGLOBAL StrToHGLOBAL(const char* s, UINT flags = GMEM_MOVEABLE);
 TempStr AtomToStrTemp(ATOM a);
+int MsgBox(HWND, const char*, const char*, UINT);
+
+constexpr u32 kCpuMMX = 1 << 1;
+constexpr u32 kCpuSSE = 1 << 2;
+constexpr u32 kCpuSSE2 = 1 << 2;
+constexpr u32 kCpuSSE3 = 1 << 3;
+constexpr u32 kCpuSSE41 = 1 << 4;
+constexpr u32 kCpuSSE42 = 1 << 5;
+constexpr u32 kCpuAVX = 1 << 6;
+constexpr u32 kCpuAVX2 = 1 << 7;
+
+u32 CpuID();
+
+LARGE_INTEGER TimeNow();
+double TimeDiffSecs(const LARGE_INTEGER& start, const LARGE_INTEGER& end);
+double TimeDiffMs(const LARGE_INTEGER& start, const LARGE_INTEGER& end);

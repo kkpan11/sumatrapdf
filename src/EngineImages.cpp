@@ -17,6 +17,7 @@
 #include "wingui/UIModels.h"
 
 #include "FzImgReader.h"
+#include "DocProperties.h"
 #include "DocController.h"
 #include "EngineBase.h"
 #include "EngineAll.h"
@@ -134,7 +135,7 @@ EngineImages::~EngineImages() {
     EnterCriticalSection(&cacheAccess);
     while (pageCache.size() > 0) {
         ImagePage* lastPage = pageCache.Last();
-        CrashIf(lastPage->refs != 1);
+        ReportIf(lastPage->refs != 1);
         DropPage(lastPage, true);
     }
     DeleteVecMembers(pages);
@@ -143,7 +144,7 @@ EngineImages::~EngineImages() {
 }
 
 RectF EngineImages::PageMediabox(int pageNo) {
-    CrashIf((pageNo < 1) || (pageNo > pageCount));
+    ReportIf((pageNo < 1) || (pageNo > pageCount));
     int n = pageNo - 1;
     ImagePageInfo* pi = pages[n];
     RectF& mbox = pi->mediabox;
@@ -167,7 +168,9 @@ RenderedBitmap* EngineImages::RenderPage(RenderPageArgs& args) {
     auto timeStart = TimeGet();
     defer {
         auto dur = TimeSinceInMs(timeStart);
-        logf("EngineImages::RenderPage() in %.2f ms\n", dur);
+        if (dur > 300.f) {
+            logf("EngineImages::RenderPage() in %.2f ms\n", dur);
+        }
     };
 
     RectF pageRc = pageRect ? *pageRect : PageMediabox(pageNo);
@@ -247,7 +250,7 @@ static IPageElement* NewImageElement(int pageNo, float dx, float dy) {
 
 // don't delete the result
 Vec<IPageElement*> EngineImages::GetElements(int pageNo) {
-    CrashIf(pageNo < 1 || pageNo > pageCount);
+    ReportIf(pageNo < 1 || pageNo > pageCount);
     auto* pi = pages[pageNo - 1];
     if (pi->allElements.size() > 0) {
         return pi->allElements;
@@ -275,7 +278,7 @@ IPageElement* EngineImages::GetElementAtPos(int pageNo, PointF pt) {
 }
 
 RenderedBitmap* EngineImages::GetImageForPageElement(IPageElement* pel) {
-    CrashIf(pel->GetKind() != kindPageElementImage);
+    ReportIf(pel->GetKind() != kindPageElementImage);
     auto ipel = (PageElementImage*)pel;
     int pageNo = ipel->pageNo;
     auto page = GetPage(pageNo);
@@ -333,7 +336,7 @@ ImagePage* EngineImages::GetPage(int pageNo, bool tryOnly) {
     if (!result) {
         // TODO: drop most memory intensive pages first
         if (pageCache.size() >= MAX_IMAGE_PAGE_CACHE) {
-            CrashIf(pageCache.size() != MAX_IMAGE_PAGE_CACHE);
+            ReportIf(pageCache.size() != MAX_IMAGE_PAGE_CACHE);
             DropPage(pageCache.Last(), true);
         }
         result = new ImagePage(pageNo, nullptr);
@@ -359,7 +362,7 @@ ImagePage* EngineImages::GetPage(int pageNo, bool tryOnly) {
 void EngineImages::DropPage(ImagePage* page, bool forceRemove) {
     ScopedCritSec scope(&cacheAccess);
     page->refs--;
-    CrashIf(page->refs < 0);
+    ReportIf(page->refs < 0);
 
     if (0 == page->refs || forceRemove) {
         pageCache.Remove(page);
@@ -416,7 +419,7 @@ RectF EngineImages::PageContentBox(int pageNo, RenderTarget target) {
     }
 
     auto getPixel = [&bmpData, bytesPerPixel](int x, int y) -> uint32_t {
-        CrashIf(x < 0 || x >= (int)bmpData.Width || y < 0 || y >= (int)bmpData.Height);
+        ReportIf(x < 0 || x >= (int)bmpData.Width || y < 0 || y >= (int)bmpData.Height);
         auto data = static_cast<const uint8_t*>(bmpData.Scan0);
         unsigned idx = bytesPerPixel * x + bmpData.Stride * y;
         uint32_t rgb = (data[idx + 2] << 16) | (data[idx + 1] << 8) | data[idx];
@@ -492,7 +495,7 @@ class EngineImage : public EngineImages {
 
     EngineBase* Clone() override;
 
-    TempStr GetPropertyTemp(DocumentProperty prop) override;
+    TempStr GetPropertyTemp(const char* name) override;
 
     static EngineBase* CreateFromFile(const char* fileName);
     static EngineBase* CreateFromStream(IStream* stream);
@@ -617,7 +620,7 @@ bool EngineImage::FinishLoading() {
     auto pi = new ImagePageInfo();
     pi->mediabox = RectF(0, 0, (float)image->GetWidth(), (float)image->GetHeight());
     pages.Append(pi);
-    CrashIf(pages.size() != 1);
+    ReportIf(pages.size() != 1);
 
     // extract all frames from multi-page TIFFs and animated GIFs
     // TODO: do the same for .avif and .heic formats
@@ -667,23 +670,26 @@ static TempStr GetImagePropertyTemp(Bitmap* bmp, PROPID id, PROPID altId = 0) {
     return res;
 }
 
-TempStr EngineImage::GetPropertyTemp(DocumentProperty prop) {
-    switch (prop) {
-        case DocumentProperty::Title:
-            return GetImagePropertyTemp(image, PropertyTagImageDescription, PropertyTagXPTitle);
-        case DocumentProperty::Subject:
-            return GetImagePropertyTemp(image, PropertyTagXPSubject);
-        case DocumentProperty::Author:
-            return GetImagePropertyTemp(image, PropertyTagArtist, PropertyTagXPAuthor);
-        case DocumentProperty::Copyright:
-            return GetImagePropertyTemp(image, PropertyTagCopyright);
-        case DocumentProperty::CreationDate:
-            return GetImagePropertyTemp(image, PropertyTagDateTime, PropertyTagExifDTDigitized);
-        case DocumentProperty::CreatorApp:
-            return GetImagePropertyTemp(image, PropertyTagSoftwareUsed);
-        default:
-            return nullptr;
+TempStr EngineImage::GetPropertyTemp(const char* name) {
+    if (str::Eq(name, kPropTitle)) {
+        return GetImagePropertyTemp(image, PropertyTagImageDescription, PropertyTagXPTitle);
     }
+    if (str::Eq(name, kPropSubject)) {
+        return GetImagePropertyTemp(image, PropertyTagXPSubject);
+    }
+    if (str::Eq(name, kPropAuthor)) {
+        return GetImagePropertyTemp(image, PropertyTagArtist, PropertyTagXPAuthor);
+    }
+    if (str::Eq(name, kPropCopyright)) {
+        return GetImagePropertyTemp(image, PropertyTagCopyright);
+    }
+    if (str::Eq(name, kPropCreationDate)) {
+        return GetImagePropertyTemp(image, PropertyTagDateTime, PropertyTagExifDTDigitized);
+    }
+    if (str::Eq(name, kPropCreatorApp)) {
+        return GetImagePropertyTemp(image, PropertyTagSoftwareUsed);
+    }
+    return nullptr;
 }
 
 Bitmap* EngineImage::LoadBitmapForPage(int pageNo, bool& deleteAfterUse) {
@@ -696,7 +702,7 @@ Bitmap* EngineImage::LoadBitmapForPage(int pageNo, bool& deleteAfterUse) {
     ReportIfNotMultiImage(this);
     const GUID* dim = imageFormat == kindFileTiff ? &FrameDimensionPage : &FrameDimensionTime;
     uint frameCount = image->GetFrameCount(dim);
-    CrashIf((unsigned int)pageNo > frameCount);
+    ReportIf((unsigned int)pageNo > frameCount);
     Bitmap* frame = image->Clone(0, 0, image->GetWidth(), image->GetHeight(), PixelFormat32bppARGB);
     if (!frame) {
         return nullptr;
@@ -812,7 +818,7 @@ class EngineImageDir : public EngineImages {
     }
     bool SaveFileAs(const char* copyFileName) override;
 
-    TempStr GetPropertyTemp(DocumentProperty) override {
+    TempStr GetPropertyTemp(const char*) override {
         return nullptr;
     }
 
@@ -835,7 +841,7 @@ class EngineImageDir : public EngineImages {
 static bool LoadImageDir(EngineImageDir* e, const char* dir) {
     e->SetFilePath(dir);
 
-    DirTraverse(dir, false, [e](const char* path) -> bool {
+    DirTraverse(dir, false, [e](WIN32_FIND_DATAW*, const char* path) -> bool {
         Kind kind = GuessFileTypeFromName(path);
         if (IsEngineImageSupportedFileType(kind)) {
             e->pageFileNames.Append(path);
@@ -871,7 +877,7 @@ TempStr EngineImageDir::GetPageLabeTemp(int pageNo) const {
         return EngineBase::GetPageLabeTemp(pageNo);
     }
 
-    const char* path = pageFileNames.at(pageNo - 1);
+    const char* path = pageFileNames.At(pageNo - 1);
     TempStr fileName = path::GetBaseNameTemp(path);
     TempStr ext = path::GetExtTemp(fileName);
     if (!ext) {
@@ -938,7 +944,7 @@ bool EngineImageDir::SaveFileAs(const char* dstPath) {
 }
 
 Bitmap* EngineImageDir::LoadBitmapForPage(int pageNo, bool& deleteAfterUse) {
-    char* path = pageFileNames.at(pageNo - 1);
+    char* path = pageFileNames.At(pageNo - 1);
     ByteSlice bmpData = file::ReadFile(path);
     if (!bmpData) {
         return nullptr;
@@ -950,7 +956,7 @@ Bitmap* EngineImageDir::LoadBitmapForPage(int pageNo, bool& deleteAfterUse) {
 }
 
 RectF EngineImageDir::LoadMediabox(int pageNo) {
-    char* path = pageFileNames.at(pageNo - 1);
+    char* path = pageFileNames.At(pageNo - 1);
     ByteSlice bmpData = file::ReadFile(path);
     if (bmpData) {
         Size size = BitmapSizeFromData(bmpData);
@@ -961,7 +967,7 @@ RectF EngineImageDir::LoadMediabox(int pageNo) {
 }
 
 EngineBase* EngineImageDir::CreateFromFile(const char* fileName) {
-    CrashIf(!dir::Exists(fileName));
+    ReportIf(!dir::Exists(fileName));
     EngineImageDir* engine = new EngineImageDir();
     if (!LoadImageDir(engine, fileName)) {
         engine->Release();
@@ -998,12 +1004,12 @@ struct ComicInfoParser : json::ValueVisitor {
     void Parse(const ByteSlice& xmlData);
 };
 
-static char* GetTextContent(HtmlPullParser& parser) {
+static TempStr GetTextContentTemp(HtmlPullParser& parser) {
     HtmlToken* tok = parser.Next();
     if (!tok || !tok->IsText()) {
         return nullptr;
     }
-    return ResolveHtmlEntities(tok->s, tok->sLen);
+    return ResolveHtmlEntitiesTemp(tok->s, tok->sLen);
 }
 
 // extract ComicInfo.xml metadata
@@ -1017,33 +1023,33 @@ void ComicInfoParser::Parse(const ByteSlice& xmlData) {
             continue;
         }
         if (tok->NameIs("Title")) {
-            AutoFreeStr value = GetTextContent(parser);
+            TempStr value = GetTextContentTemp(parser);
             if (value) {
                 Visit("/ComicBookInfo/1.0/title", value, json::Type::String);
             }
         } else if (tok->NameIs("Year")) {
-            AutoFreeStr value = GetTextContent(parser);
+            TempStr value = GetTextContentTemp(parser);
             if (value) {
                 Visit("/ComicBookInfo/1.0/publicationYear", value, json::Type::Number);
             }
         } else if (tok->NameIs("Month")) {
-            AutoFreeStr value = GetTextContent(parser);
+            TempStr value = GetTextContentTemp(parser);
             if (value) {
                 Visit("/ComicBookInfo/1.0/publicationMonth", value, json::Type::Number);
             }
         } else if (tok->NameIs("Summary")) {
-            AutoFreeStr value = GetTextContent(parser);
+            TempStr value = GetTextContentTemp(parser);
             if (value) {
                 Visit("/X-summary", value, json::Type::String);
             }
         } else if (tok->NameIs("Writer")) {
-            AutoFreeStr value = GetTextContent(parser);
+            TempStr value = GetTextContentTemp(parser);
             if (value) {
                 Visit("/ComicBookInfo/1.0/credits[0]/person", value, json::Type::String);
                 Visit("/ComicBookInfo/1.0/credits[0]/primary", "true", json::Type::Bool);
             }
         } else if (tok->NameIs("Penciller")) {
-            AutoFreeStr value = GetTextContent(parser);
+            TempStr value = GetTextContentTemp(parser);
             if (value) {
                 Visit("/ComicBookInfo/1.0/credits[1]/person", value, json::Type::String);
                 Visit("/ComicBookInfo/1.0/credits[1]/primary", "true", json::Type::Bool);
@@ -1092,7 +1098,7 @@ class EngineCbx : public EngineImages {
 
     EngineBase* Clone() override;
 
-    TempStr GetPropertyTemp(DocumentProperty prop) override;
+    TempStr GetPropertyTemp(const char* name) override;
 
     TocTree* GetToc() override;
 
@@ -1179,12 +1185,12 @@ static const char* GetExtFromArchiveType(MultiFormatArchive* cbxFile) {
         case MultiFormatArchive::Format::Tar:
             return ".cbt";
     }
-    CrashIf(true);
+    ReportIf(true);
     return nullptr;
 }
 
 bool EngineCbx::FinishLoading() {
-    CrashIf(!cbxFile);
+    ReportIf(!cbxFile);
     if (!cbxFile) {
         return false;
     }
@@ -1282,34 +1288,39 @@ TocTree* EngineCbx::GetToc() {
 }
 
 ByteSlice EngineCbx::GetImageData(int pageNo) {
-    CrashIf((pageNo < 1) || (pageNo > PageCount()));
+    ReportIf((pageNo < 1) || (pageNo > PageCount()));
     size_t fileId = files[pageNo - 1]->fileId;
     ByteSlice d = cbxFile->GetFileDataById(fileId);
     return d;
 }
 
-TempStr EngineCbx::GetPropertyTemp(DocumentProperty prop) {
-    switch (prop) {
-        case DocumentProperty::Title:
-            return cip.propTitle;
-        case DocumentProperty::Author: {
-            if (cip.propAuthors.Size() == 0) {
-                return nullptr;
-            }
-            return JoinTemp(cip.propAuthors, ", ");
-        }
-        case DocumentProperty::CreationDate:
-            return cip.propDate;
-        case DocumentProperty::ModificationDate:
-            return cip.propModDate;
-        case DocumentProperty::CreatorApp:
-            return cip.propCreator;
-        // TODO: replace with Prop_Summary
-        case DocumentProperty::Subject:
-            return cip.propSummary;
-        default:
-            return nullptr;
+TempStr EngineCbx::GetPropertyTemp(const char* name) {
+    if (str::Eq(name, kPropTitle)) {
+        return cip.propTitle;
     }
+
+    if (str::Eq(name, kPropAuthor)) {
+        if (cip.propAuthors.Size() == 0) {
+            return nullptr;
+        }
+        return JoinTemp(cip.propAuthors, ", ");
+    }
+
+    if (str::Eq(name, kPropCreationDate)) {
+        return cip.propDate;
+    }
+    if (str::Eq(name, kPropModificationDate)) {
+        return cip.propModDate;
+    }
+    if (str::Eq(name, kPropCreatorApp)) {
+        return cip.propCreator;
+    }
+    if (str::Eq(name, kPropSubject)) {
+        // TODO: replace with Prop_Summary
+        return cip.propSummary;
+    }
+
+    return nullptr;
 }
 
 Bitmap* EngineCbx::LoadBitmapForPage(int pageNo, bool& deleteAfterUse) {

@@ -66,6 +66,12 @@ struct Annotation {
     ~Annotation();
 };
 
+struct AnnotCreateArgs {
+    AnnotationType annotType = AnnotationType::Unknown;
+    // the following are set depending on type of the annotation
+    ParsedColor col;
+};
+
 int PageNo(Annotation*);
 RectF GetBounds(Annotation*);
 RectF GetRect(Annotation*);

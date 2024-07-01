@@ -3,7 +3,6 @@
 
 extern "C" {
 #include <mupdf/fitz.h>
-#include <mupdf/pdf.h>
 }
 
 #include "utils/BaseUtil.h"
@@ -21,6 +20,7 @@ extern "C" {
 #include "EngineBase.h"
 #include "EngineAll.h"
 #include "DisplayModel.h"
+#include "FzImgReader.h"
 #include "AppColors.h"
 #include "GlobalPrefs.h"
 #include "ProgressUpdateUI.h"
@@ -87,12 +87,14 @@ static ToolbarButtonInfo gToolbarButtons[] = {
     {TbIcon::SearchNext, CmdFindNext, _TRN("Find Next")},
     {TbIcon::MatchCase, CmdFindMatch, _TRN("Match Case")},
     {TbIcon::None, CmdInfoText, nullptr}, // info text
+    //{TbIcon::Text, CmdOpenNextFileInFolder, "▼"},
 };
+// unicode chars: https://www.compart.com/en/unicode/U+25BC
 
 constexpr int kButtonsCount = dimof(gToolbarButtons);
 
-static bool TbIsSeparator(ToolbarButtonInfo& tbi) {
-    return (int)tbi.bmpIndex < 0;
+static bool TbIsSeparator(const ToolbarButtonInfo& tbi) {
+    return (int)tbi.bmpIndex == (int)TbIcon::None;
 }
 
 static void TbSetButtonDx(HWND hwndToolbar, int cmd, int dx) {
@@ -118,7 +120,8 @@ static bool NeedsInfo(MainWindow* win) {
 }
 
 static bool IsVisibleToolbarButton(MainWindow* win, int buttonNo) {
-    switch (gToolbarButtons[buttonNo].cmdId) {
+    ToolbarButtonInfo& bi = gToolbarButtons[buttonNo];
+    switch (bi.cmdId) {
         case CmdZoomFitWidthAndContinuous:
         case CmdZoomFitPageAndSinglePage:
             return !win->AsChm();
@@ -184,18 +187,27 @@ static bool IsToolbarButtonEnabled(MainWindow* win, int buttonNo) {
 }
 
 static TBBUTTON TbButtonFromButtonInfo(int i) {
-    auto& btInfo = gToolbarButtons[i];
-    TBBUTTON info{};
-    info.idCommand = btInfo.cmdId;
-    if (TbIsSeparator(btInfo)) {
-        info.fsStyle = TBSTYLE_SEP;
-    } else {
-        info.iBitmap = (int)btInfo.bmpIndex;
-        info.fsState = TBSTATE_ENABLED;
-        info.fsStyle = TBSTYLE_BUTTON;
-        info.iString = (INT_PTR)trans::GetTranslation(btInfo.toolTip);
+    const ToolbarButtonInfo& bi = gToolbarButtons[i];
+    TBBUTTON b{};
+    b.idCommand = bi.cmdId;
+    if (TbIsSeparator(bi)) {
+        b.fsStyle = BTNS_SEP;
+        return b;
     }
-    return info;
+    b.iBitmap = (int)bi.bmpIndex;
+    b.fsState = TBSTATE_ENABLED;
+    b.fsStyle = BTNS_BUTTON;
+    if (bi.cmdId == CmdFindMatch) {
+        b.fsStyle = BTNS_CHECK;
+    }
+    if (bi.bmpIndex == TbIcon::Text) {
+        // b.fsStyle = BTNS_DROPDOWN;
+        b.fsStyle |= BTNS_SHOWTEXT;
+        b.fsStyle |= BTNS_AUTOSIZE;
+    }
+    auto s = trans::GetTranslation(bi.toolTip);
+    b.iString = (INT_PTR)ToWStrTemp(s);
+    return b;
 }
 
 // Set toolbar button tooltips taking current language into account.
@@ -204,18 +216,19 @@ void UpdateToolbarButtonsToolTipsForWindow(MainWindow* win) {
     HWND hwnd = win->hwndToolbar;
     ACCEL accel;
     for (int i = 0; i < kButtonsCount; i++) {
-        auto& tb = gToolbarButtons[i];
-
-        if (!tb.toolTip) {
+        const ToolbarButtonInfo& bi = gToolbarButtons[i];
+        if (!bi.toolTip) {
             continue;
         }
-
+        if (bi.bmpIndex == TbIcon::Text) {
+            continue;
+        }
         str::Str accelStr;
-        if (GetAccelByCmd(tb.cmdId, accel)) {
+        if (GetAccelByCmd(bi.cmdId, accel)) {
             AppendAccelKeyToMenuString(accelStr, accel);
         }
 
-        const char* s = trans::GetTranslationA(tb.toolTip);
+        const char* s = trans::GetTranslation(bi.toolTip);
         if (accelStr.size() > 0) {
             accelStr[0] = '(';
             accelStr.Append(")");
@@ -757,41 +770,6 @@ void LogBitmapInfo(HBITMAP hbmp) {
     }
 }
 
-struct MupdfContext {
-    fz_locks_context fz_locks_ctx{};
-    CRITICAL_SECTION mutexes[FZ_LOCK_MAX];
-    fz_context* ctx = nullptr;
-    MupdfContext();
-    ~MupdfContext();
-};
-
-static void fz_lock_context_cs(void* user, int lock) {
-    MupdfContext* ctx = (MupdfContext*)user;
-    EnterCriticalSection(&ctx->mutexes[lock]);
-}
-
-static void fz_unlock_context_cs(void* user, int lock) {
-    MupdfContext* ctx = (MupdfContext*)user;
-    LeaveCriticalSection(&ctx->mutexes[lock]);
-}
-
-MupdfContext::MupdfContext() {
-    for (int i = 0; i < FZ_LOCK_MAX; i++) {
-        InitializeCriticalSection(&mutexes[i]);
-    }
-    fz_locks_ctx.user = this;
-    fz_locks_ctx.lock = fz_lock_context_cs;
-    fz_locks_ctx.unlock = fz_unlock_context_cs;
-    ctx = fz_new_context(nullptr, &fz_locks_ctx, FZ_STORE_DEFAULT);
-}
-
-MupdfContext::~MupdfContext() {
-    fz_drop_context(ctx);
-    for (int i = 0; i < FZ_LOCK_MAX; i++) {
-        DeleteCriticalSection(&mutexes[i]);
-    }
-}
-
 static void BlitPixmap(u8* dstSamples, ptrdiff_t dstStride, fz_pixmap* src, int dstX, int dstY, COLORREF bgCol) {
     int dx = src->w;
     int dy = src->h;
@@ -823,8 +801,7 @@ static void BlitPixmap(u8* dstSamples, ptrdiff_t dstStride, fz_pixmap* src, int 
 }
 
 static HBITMAP BuildIconsBitmap(int dx, int dy) {
-    MupdfContext* muctx = new MupdfContext();
-    fz_context* ctx = muctx->ctx;
+    fz_context* ctx = fz_new_context_windows();
     int nIcons = (int)TbIcon::kMax;
     int destDx = dx * nIcons;
     ptrdiff_t dstStride;
@@ -880,7 +857,7 @@ static HBITMAP BuildIconsBitmap(int dx, int dy) {
         fz_drop_buffer(ctx, buf);
     }
 
-    delete muctx;
+    fz_drop_context_windows(ctx);
     return hbmp;
 }
 
@@ -888,7 +865,6 @@ constexpr int kDefaultIconSize = 18;
 
 static int SetToolbarIconsImageList(MainWindow* win) {
     HWND hwndToolbar = win->hwndToolbar;
-    CrashIf(!hwndToolbar);
     HWND hwndParent = GetParent(hwndToolbar);
 
     // we call it ToolbarSize for users, but it's really size of the icon
@@ -955,12 +931,8 @@ void CreateToolbar(MainWindow* win) {
     TBBUTTON tbButtons[kButtonsCount];
     for (int i = 0; i < kButtonsCount; i++) {
         tbButtons[i] = TbButtonFromButtonInfo(i);
-        if (gToolbarButtons[i].cmdId == CmdFindMatch) {
-            tbButtons[i].fsStyle = BTNS_CHECK;
-        }
     }
-    BOOL ok = SendMessageW(hwndToolbar, TB_ADDBUTTONS, kButtonsCount, (LPARAM)tbButtons);
-    CrashIf(!ok);
+    SendMessageW(hwndToolbar, TB_ADDBUTTONS, kButtonsCount, (LPARAM)tbButtons);
 
     SendMessageW(hwndToolbar, TB_SETBUTTONSIZE, 0, MAKELONG(iconSize, iconSize));
 

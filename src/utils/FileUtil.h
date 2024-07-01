@@ -22,16 +22,13 @@ bool IsDirectory(const char*);
 
 char* NormalizeTemp(const char* path);
 
-char* ShortPath(const char* pathA);
+TempStr ShortPathTemp(const char* pathA);
 bool IsSame(const char* path1, const char* path2);
 bool HasVariableDriveLetter(const char* path);
 bool IsOnFixedDrive(const char* path);
 bool IsAbsolute(const char* path);
 
 bool Match(const char* path, const char* filter);
-
-char* GetTempFilePath(const char* filePrefix = nullptr);
-TempStr GetPathOfFileInAppDirTemp(const char* fileName = nullptr);
 
 enum Type {
     None, // path doesn't exist
@@ -41,6 +38,9 @@ enum Type {
 Type GetType(const char* path);
 
 } // namespace path
+
+TempStr GetTempFilePathTemp(const char* filePrefix = nullptr);
+TempStr GetPathInExeDirTemp(const char* fileName = nullptr);
 
 namespace file {
 

@@ -18,6 +18,7 @@
 #include "FileHistory.h"
 #include "AppColors.h"
 #include "GlobalPrefs.h"
+#include "Annotation.h"
 #include "SumatraPDF.h"
 #include "MainWindow.h"
 #include "resource.h"
@@ -314,7 +315,7 @@ static void UpdateAboutLayoutInfo(HWND hwnd, HDC hdc, Rect* rect) {
         if (el == &gAboutLayoutInfo[0]) {
             leftDy = el->leftPos.dy;
         } else {
-            CrashIf(leftDy != el->leftPos.dy);
+            ReportIf(leftDy != el->leftPos.dy);
         }
         if (leftLargestDx < el->leftPos.dx) {
             leftLargestDx = el->leftPos.dx;
@@ -334,7 +335,7 @@ static void UpdateAboutLayoutInfo(HWND hwnd, HDC hdc, Rect* rect) {
         if (el == &gAboutLayoutInfo[0]) {
             rightDy = el->rightPos.dy;
         } else {
-            CrashIf(rightDy != el->rightPos.dy);
+            ReportIf(rightDy != el->rightPos.dy);
         }
         if (rightLargestDx < el->rightPos.dx) {
             rightLargestDx = el->rightPos.dx;
@@ -459,7 +460,7 @@ LRESULT CALLBACK WndProcAbout(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     int y = GET_Y_LPARAM(lp);
     switch (msg) {
         case WM_CREATE:
-            CrashIf(gHwndAbout);
+            ReportIf(gHwndAbout);
             break;
 
         case WM_ERASEBKGND:
@@ -509,7 +510,7 @@ LRESULT CALLBACK WndProcAbout(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 
         case WM_DESTROY:
             DeleteInfotip();
-            CrashIf(!gHwndAbout);
+            ReportIf(!gHwndAbout);
             gHwndAbout = nullptr;
             break;
 
@@ -533,10 +534,10 @@ void ShowAboutWindow(MainWindow* win) {
         HMODULE h = GetModuleHandleW(nullptr);
         wcex.hIcon = LoadIcon(h, MAKEINTRESOURCE(GetAppIconID()));
         gAtomAbout = RegisterClassEx(&wcex);
-        CrashIf(!gAtomAbout);
+        ReportIf(!gAtomAbout);
     }
 
-    const WCHAR* title = _TR("About SumatraPDF");
+    TempWStr title = ToWStrTemp(_TRA("About SumatraPDF"));
     DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU;
     int x = CW_USEDEFAULT;
     int y = CW_USEDEFAULT;

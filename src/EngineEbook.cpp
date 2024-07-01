@@ -19,6 +19,7 @@
 
 #include "wingui/UIModels.h"
 
+#include "DocProperties.h"
 #include "DocController.h"
 #include "FzImgReader.h"
 #include "EngineBase.h"
@@ -257,7 +258,7 @@ void EngineEbook::GetTransform(Matrix& m, float zoom, int rotation) {
 }
 
 Vec<DrawInstr>* EngineEbook::GetHtmlPage(int pageNo) {
-    CrashIf(pageNo < 1 || PageCount() < pageNo);
+    ReportIf(pageNo < 1 || PageCount() < pageNo);
     if (pageNo < 1 || PageCount() < pageNo) {
         return nullptr;
     }
@@ -265,7 +266,7 @@ Vec<DrawInstr>* EngineEbook::GetHtmlPage(int pageNo) {
 }
 
 HtmlPage* EngineEbook::GetHtmlPage2(int pageNo) {
-    CrashIf(pageNo < 1 || PageCount() < pageNo);
+    ReportIf(pageNo < 1 || PageCount() < pageNo);
     if (pageNo < 1 || PageCount() < pageNo) {
         return nullptr;
     }
@@ -295,7 +296,7 @@ bool EngineEbook::ExtractPageAnchors() {
         baseAnchors.Append(baseAnchor);
     }
 
-    CrashIf(baseAnchors.size() != pages->size());
+    ReportIf(baseAnchors.size() != pages->size());
     return true;
 }
 
@@ -393,7 +394,7 @@ PageText EngineEbook::ExtractPageText(int pageNo) {
                     (bbox.x < coords.Last().BR().x || bbox.y > coords.Last().y + coords.Last().dy * 0.8)) {
                     content.Append(lineSep);
                     coords.AppendBlanks(str::Len(lineSep));
-                    CrashIf(*lineSep && !coords.Last().IsEmpty());
+                    ReportIf(*lineSep && !coords.Last().IsEmpty());
                 } else if (insertSpace && coords.size() > 0) {
                     int swidth = bbox.x - coords.Last().BR().x;
                     if (swidth > 0) {
@@ -403,7 +404,7 @@ PageText EngineEbook::ExtractPageText(int pageNo) {
                 }
                 insertSpace = false;
                 {
-                    AutoFreeWstr s(strconv::FromHtmlUtf8(i.str.s, i.str.len));
+                    AutoFreeWStr s(strconv::FromHtmlUtf8(i.str.s, i.str.len));
                     content.Append(s);
                     size_t len = str::Len(s);
                     double cwidth = 1.0 * bbox.dx / len;
@@ -417,7 +418,7 @@ PageText EngineEbook::ExtractPageText(int pageNo) {
                     (bbox.BR().x > coords.Last().x || bbox.y > coords.Last().y + coords.Last().dy * 0.8)) {
                     content.Append(lineSep);
                     coords.AppendBlanks(str::Len(lineSep));
-                    CrashIf(*lineSep && !coords.Last().IsEmpty());
+                    ReportIf(*lineSep && !coords.Last().IsEmpty());
                 } else if (insertSpace && coords.size() > 0) {
                     int swidth = coords.Last().x - bbox.BR().x;
                     if (swidth > 0) {
@@ -427,7 +428,7 @@ PageText EngineEbook::ExtractPageText(int pageNo) {
                 }
                 insertSpace = false;
                 {
-                    AutoFreeWstr s(strconv::FromHtmlUtf8(i.str.s, i.str.len));
+                    AutoFreeWStr s(strconv::FromHtmlUtf8(i.str.s, i.str.len));
                     content.Append(s);
                     size_t len = str::Len(s);
                     double cwidth = 1.0 * bbox.dx / len;
@@ -446,7 +447,7 @@ PageText EngineEbook::ExtractPageText(int pageNo) {
         content.Append(lineSep);
         coords.AppendBlanks(str::Len(lineSep));
     }
-    CrashIf(coords.size() != content.size());
+    ReportIf(coords.size() != content.size());
 
     PageText res;
     res.len = (int)content.size();
@@ -464,7 +465,7 @@ IPageElement* EngineEbook::CreatePageLink(DrawInstr* link, Rect rect, int pageNo
     DrawInstr* baseAnchor = baseAnchors.at(pageNo - 1);
     if (baseAnchor) {
         char* basePath = str::DupTemp(baseAnchor->str.s, baseAnchor->str.len);
-        AutoFreeStr relPath = ResolveHtmlEntities(link->str.s, link->str.len);
+        TempStr relPath = ResolveHtmlEntitiesTemp(link->str.s, link->str.len);
         AutoFreeStr absPath = NormalizeURL(relPath, basePath);
         url = str::DupTemp(absPath.Get());
     }
@@ -516,13 +517,13 @@ static RenderedBitmap* getImageFromData(const ByteSlice& imageData) {
 }
 
 RenderedBitmap* EngineEbook::GetImageForPageElement(IPageElement* iel) {
-    CrashIf(iel->GetKind() != kindPageElementImage);
+    ReportIf(iel->GetKind() != kindPageElementImage);
     PageElementImage* el = (PageElementImage*)iel;
     int pageNo = el->pageNo;
     int idx = el->imageID;
     Vec<DrawInstr>* pageInstrs = GetHtmlPage(pageNo);
     auto&& i = pageInstrs->at(idx);
-    CrashIf(i.type != DrawInstrType::Image);
+    ReportIf(i.type != DrawInstrType::Image);
     return getImageFromData(i.GetImage());
 }
 
@@ -610,7 +611,7 @@ TempStr EngineEbook::ExtractFontListTemp() {
             FontFamily family;
             if (!i.font->font) {
                 // TODO: handle gdi
-                CrashIf(!i.font->GetHFont());
+                ReportIf(!i.font->GetHFont());
                 continue;
             }
             Status ok = i.font->font->GetFamily(&family);
@@ -623,7 +624,7 @@ TempStr EngineEbook::ExtractFontListTemp() {
                 continue;
             }
             char* fontName = ToUtf8Temp(fontNameW);
-            fonts.AppendIfNotExists(fontName);
+            AppendIfNotExists(fonts, fontName);
         }
     }
     if (fonts.Size() == 0) {
@@ -712,8 +713,11 @@ class EngineEpub : public EngineEbook {
     ByteSlice GetFileData() override;
     bool SaveFileAs(const char* copyFileName) override;
 
-    TempStr GetPropertyTemp(DocumentProperty prop) override {
-        return prop != DocumentProperty::FontList ? doc->GetPropertyTemp(prop) : ExtractFontListTemp();
+    TempStr GetPropertyTemp(const char* name) override {
+        if (str::Eq(name, kPropFontList)) {
+            return ExtractFontListTemp();
+        }
+        return doc->GetPropertyTemp(name);
     }
 
     TocTree* GetToc() override;
@@ -889,8 +893,11 @@ class EngineFb2 : public EngineEbook {
         return CreateFromFile(fileName);
     }
 
-    TempStr GetPropertyTemp(DocumentProperty prop) override {
-        return prop != DocumentProperty::FontList ? doc->GetPropertyTemp(prop) : ExtractFontListTemp();
+    TempStr GetPropertyTemp(const char* name) override {
+        if (str::Eq(name, kPropFontList)) {
+            return ExtractFontListTemp();
+        }
+        return doc->GetPropertyTemp(name);
     }
 
     TocTree* GetToc() override;
@@ -1009,8 +1016,11 @@ class EngineMobi : public EngineEbook {
         return CreateFromFile(fileName);
     }
 
-    TempStr GetPropertyTemp(DocumentProperty prop) override {
-        return prop != DocumentProperty::FontList ? doc->GetPropertyTemp(prop) : ExtractFontListTemp();
+    TempStr GetPropertyTemp(const char* name) override {
+        if (str::Eq(name, kPropFontList)) {
+            return ExtractFontListTemp();
+        }
+        return doc->GetPropertyTemp(name);
     }
 
     IPageDestination* GetNamedDest(const char* name) override;
@@ -1073,7 +1083,7 @@ IPageDestination* EngineMobi::GetNamedDest(const char* name) {
             break;
         }
     }
-    CrashIf(pageNo < 1 || pageNo > PageCount());
+    ReportIf(pageNo < 1 || pageNo > PageCount());
 
     ByteSlice htmlData = doc->GetHtmlData();
     size_t htmlLen = htmlData.size();
@@ -1161,8 +1171,11 @@ class EnginePdb : public EngineEbook {
         return CreateFromFile(fileName);
     }
 
-    TempStr GetPropertyTemp(DocumentProperty prop) override {
-        return prop != DocumentProperty::FontList ? doc->GetPropertyTemp(prop) : ExtractFontListTemp();
+    TempStr GetPropertyTemp(const char* name) override {
+        if (str::Eq(name, kPropFontList)) {
+            return ExtractFontListTemp();
+        }
+        return doc->GetPropertyTemp(name);
     }
 
     TocTree* GetToc() override;
@@ -1299,7 +1312,7 @@ class ChmFormatter : public HtmlFormatter {
 };
 
 void ChmFormatter::HandleTagImg(HtmlToken* t) {
-    CrashIf(!chmDoc);
+    ReportIf(!chmDoc);
     if (t->IsEndTag()) {
         return;
     }
@@ -1331,7 +1344,7 @@ void ChmFormatter::HandleTagPagebreak(HtmlToken* t) {
 }
 
 void ChmFormatter::HandleTagLink(HtmlToken* t) {
-    CrashIf(!chmDoc);
+    ReportIf(!chmDoc);
     if (t->IsEndTag()) {
         return;
     }
@@ -1380,8 +1393,11 @@ class EngineChm : public EngineEbook {
         return CreateFromFile(fileName);
     }
 
-    TempStr GetPropertyTemp(DocumentProperty prop) override {
-        return prop != DocumentProperty::FontList ? doc->GetPropertyTemp(prop) : ExtractFontListTemp();
+    TempStr GetPropertyTemp(const char* name) override {
+        if (str::Eq(name, kPropFontList)) {
+            return ExtractFontListTemp();
+        }
+        return doc->GetPropertyTemp(name);
     }
 
     IPageDestination* GetNamedDest(const char* name) override;
@@ -1454,7 +1470,7 @@ class ChmHtmlCollector : public EbookTocVisitor {
     char* GetHtml() {
         // first add the homepage
         const char* index = doc->GetHomePath();
-        AutoFreeWstr urlW(doc->SmartToWstr(index));
+        AutoFreeWStr urlW(doc->SmartToWStr(index));
         char* url = ToUtf8Temp(urlW);
         Visit(nullptr, url, 0);
 
@@ -1469,7 +1485,7 @@ class ChmHtmlCollector : public EbookTocVisitor {
                 if (*path == '/') {
                     path++;
                 }
-                urlW.Set(ToWstr(path));
+                urlW.Set(ToWStr(path));
                 url = ToUtf8Temp(urlW);
                 Visit(nullptr, url, -1);
             }
@@ -1495,7 +1511,8 @@ class ChmHtmlCollector : public EbookTocVisitor {
         }
         html.AppendFmt("<pagebreak page_path=\"%s\" page_marker />", plainUrl);
         uint charset = ExtractHttpCharset((const char*)pageHtml.Get(), pageHtml.size());
-        html.AppendAndFree(doc->SmartToUtf8((const char*)pageHtml.Get(), charset));
+        TempStr s = doc->SmartToUtf8Temp((const char*)pageHtml.Get(), charset);
+        html.Append(s);
         added.Append(plainUrl);
         pageHtml.Free();
     }
@@ -1629,8 +1646,11 @@ class EngineHtml : public EngineEbook {
         return CreateFromFile(fileName);
     }
 
-    TempStr GetPropertyTemp(DocumentProperty prop) override {
-        return prop != DocumentProperty::FontList ? doc->GetPropertyTemp(prop) : ExtractFontListTemp();
+    TempStr GetPropertyTemp(const char* name) override {
+        if (str::Eq(name, kPropFontList)) {
+            return ExtractFontListTemp();
+        }
+        return doc->GetPropertyTemp(name);
     }
 
     static EngineBase* CreateFromFile(const char* fileName);
@@ -1732,8 +1752,11 @@ class EngineTxt : public EngineEbook {
         return CreateFromFile(fileName);
     }
 
-    TempStr GetPropertyTemp(DocumentProperty prop) override {
-        return prop != DocumentProperty::FontList ? doc->GetPropertyTemp(prop) : ExtractFontListTemp();
+    TempStr GetPropertyTemp(const char* name) override {
+        if (str::Eq(name, kPropFontList)) {
+            return ExtractFontListTemp();
+        }
+        return doc->GetPropertyTemp(name);
     }
 
     TocTree* GetToc() override;

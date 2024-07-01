@@ -189,6 +189,11 @@ char (&DimofSizeHelper(T (&array)[N]))[N];
 #define IS_UNUSED __attribute__((unused))
 #endif
 
+// __analysis_assume is defined by msvc for prefast analysis
+#if !defined(__analysis_assume)
+#define __analysis_assume(x)
+#endif
+
 #if COMPILER_MSVC
 #pragma warning(push)
 #pragma warning(disable : 6011) // silence /analyze: de-referencing a nullptr pointer
@@ -207,68 +212,53 @@ inline void CrashMe() {
 #pragma warning(pop)
 #endif
 
-// CrashIf() is like assert() except it crashes in debug and pre-release builds.
+// ReportIf() is like assert() except it sends crash report in pre-release and debug
+// builds.
 // The idea is that assert() indicates "can't possibly happen" situation and if
 // it does happen, we would like to fix the underlying cause.
 // In practice in our testing we rarely get notified when an assert() is triggered
 // and they are disabled in builds running on user's computers.
-// Now that we have crash reporting, we can get notified about such cases if we
-// use CrashIf() instead of assert(), which we should be doing from now on.
 //
+// ReportAlwaysIf() sends a report even in release builds. This is to catch the most
+// thorny scenarios.
 // Enabling it in pre-release builds but not in release builds is trade-off between
-// shipping small executables (each CrashIf() adds few bytes of code) and having
+// shipping small executables (each ReportIf() adds few bytes of code) and having
 // more testing on user's machines and not only in our personal testing.
-// To crash uncoditionally use CrashAlwaysIf(). It should only be used in
+// To crash uncoditionally use ReportIf(). It should only be used in
 // rare cases where we really want to know a given condition happens. Before
-// each release we should audit the uses of CrashAlawysIf()
-//
-// Just as with assert(), the condition is not guaranteed to be executed
-// in some builds, so it shouldn't contain the actual logic of the code
+// each release we should audit the uses of ReportAlwaysIf()
 
-// TODO: maybe change to NO_INLINE since now I can filter callstack
-// on the server
-inline void CrashIfFunc(bool cond) {
-    if (!cond) {
-        return;
-    }
-    if (IsDebuggerPresent()) {
-        DebugBreak();
-        return;
-    }
+// in release builds ReportIf()/ReportIfQuick() will break if running under
+// the debugger. In other builds it send a debug report
+#undef UPLOAD_REPORT
 #if defined(PRE_RELEASE_VER) || defined(DEBUG) || defined(ASAN_BUILD)
-    CrashMe();
-#endif
-}
-
-// __analysis_assume is defined by msvc for prefast analysis
-#if !defined(__analysis_assume)
-#define __analysis_assume(x)
+#define UPLOAD_REPORT
 #endif
 
-// trigger a crash if cond is true and we're pre-release, debug or asan build
-#define CrashIf(cond)               \
-    do {                            \
-        __analysis_assume(!(cond)); \
-        CrashIfFunc(cond);          \
+extern void _uploadDebugReport(const char*, bool, bool);
+void BreakIfUnderDebugger();
+
+#ifdef UPLOAD_REPORT
+#define ReportIfCond(cond, condStr, isCrash, captureCallstack)      \
+    __analysis_assume(!(cond));                                     \
+    do {                                                            \
+        if (cond) {                                                 \
+            _uploadDebugReport(condStr, isCrash, captureCallstack); \
+        }                                                           \
     } while (0)
-
-// trigger a crash always, even in release builds
-#define CrashAlwaysIf(cond)         \
+#else
+// version that is a no-op
+#define ReportIfCond(cond, x, y, z) \
+    __analysis_assume(!(cond));     \
     do {                            \
-        __analysis_assume(!(cond)); \
         if (cond) {                 \
-            CrashMe();              \
+            BreakIfUnderDebugger(); \
         }                           \
     } while (0)
+#endif
 
-// must be defined in the app. can be no-op to disable this functionality
-void _uploadDebugReportIfFunc(bool cond, const char*);
-
-#define ReportIf(cond)                         \
-    do {                                       \
-        __analysis_assume(!(cond));            \
-        _uploadDebugReportIfFunc(cond, #cond); \
-    } while (0)
+#define ReportIf(cond) ReportIfCond(cond, #cond, false, true)
+#define ReportIfQuick(cond) ReportIfCond(cond, #cond, false, false)
 
 void* AllocZero(size_t count, size_t size);
 
@@ -293,25 +283,14 @@ inline void ZeroArray(T& a) {
     ZeroMemory((void*)&a, size);
 }
 
-template <typename T>
-inline T limitValue(T val, T min, T max) {
-    if (min > max) {
-        std::swap(min, max);
-    }
-    CrashIf(min > max);
-    if (val < min) {
-        return min;
-    }
-    if (val > max) {
-        return max;
-    }
-    return val;
-}
+int limitValue(int val, int min, int max);
+DWORD limitValue(DWORD val, DWORD min, DWORD max);
+float limitValue(float val, float min, float max);
 
 // return true if adding n to val overflows. Only valid for n > 0
 template <typename T>
 inline bool addOverflows(T val, T n) {
-    CrashIf(!(n > 0));
+    ReportIf(!(n > 0));
     T res = val + n;
     return val > res;
 }
@@ -616,6 +595,58 @@ struct AtomicInt {
     volatile LONG val = 0;
 };
 
+typedef void (*funcPtr)(void*);
+
+// the simplest possible function that ties a function and a single argument to it
+// we get type safety and convenience with mkFunc()
+struct Func0 {
+    funcPtr fn = nullptr;
+    void* userData = nullptr;
+
+    Func0() = default;
+    ~Func0() = default;
+
+    bool IsEmpty() const {
+        return fn == nullptr;
+    }
+    void Call() {
+        fn(userData);
+    }
+};
+
+template <typename T>
+Func0 mkFunc0(void (*fn)(T*), T* d) {
+    auto res = Func0{};
+    res.fn = (funcPtr)fn;
+    res.userData = (void*)d;
+    return res;
+}
+
+template <typename T>
+struct Func1 {
+    void (*fn)(void*, T*) = nullptr;
+    void* userData = nullptr;
+
+    Func1() = default;
+    ~Func1() = default;
+
+    bool IsEmpty() const {
+        return fn == nullptr;
+    }
+    void Call(T* arg) {
+        fn(userData, arg);
+    }
+};
+
+template <typename T1, typename T2>
+Func1<T2> mkFunc1(void (*fn)(T1*, T2*), T2* d) {
+    auto res = Func1<T1>{};
+    using fptr = void (*)(void*, T2*);
+    res.fn = (fptr)fn;
+    res.userData = (void*)d;
+    return res;
+}
+
 class AtomicBool {
   public:
     AtomicBool() = default;
@@ -650,10 +681,15 @@ defer { fclose(f); };
 defer { instance->Release(); };
 */
 
+// exists just to mark the intent, needed by both StrUtil.h and TempAllocator.h
+using TempStr = char*;
+using TempWStr = WCHAR*;
+
 #include "GeomUtil.h"
 #include "Vec.h"
-#include "TempAllocator.h"
 #include "StrUtil.h"
+#include "TempAllocator.h"
+#include "StrVec.h"
 #include "StrconvUtil.h"
 #include "Scoped.h"
 #include "ColorUtil.h"

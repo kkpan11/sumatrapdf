@@ -1,4 +1,4 @@
-// Copyright (C) 2004-2023 Artifex Software, Inc.
+// Copyright (C) 2004-2024 Artifex Software, Inc.
 //
 // This file is part of MuPDF.
 //
@@ -4412,6 +4412,44 @@ static void ffi_Pixmap_warp(js_State *J)
 	ffi_pushpixmap(J, dest);
 }
 
+static void ffi_Pixmap_skewDetect(js_State *J)
+{
+	fz_context *ctx = js_getcontext(J);
+	fz_pixmap *pixmap = ffi_topixmap(J, 0);
+	double angle;
+
+	fz_try(ctx)
+		angle = fz_skew_detect(ctx, pixmap);
+	fz_catch(ctx)
+		rethrow(J);
+
+	js_pushnumber(J, angle);
+}
+
+static int deskew_border_from_string(const char *str)
+{
+	if (!strcmp(str, "increase")) return FZ_DESKEW_BORDER_INCREASE;
+	if (!strcmp(str, "decrease")) return FZ_DESKEW_BORDER_DECREASE;
+	if (!strcmp(str, "maintain")) return FZ_DESKEW_BORDER_MAINTAIN;
+	return FZ_DESKEW_BORDER_INCREASE;
+}
+
+static void ffi_Pixmap_deskew(js_State *J)
+{
+	fz_context *ctx = js_getcontext(J);
+	fz_pixmap *pixmap = ffi_topixmap(J, 0);
+	float degrees = js_tonumber(J, 1);
+	int border = deskew_border_from_string(js_tostring(J, 2));
+	fz_pixmap *dest = NULL;
+
+	fz_try(ctx)
+		dest = fz_deskew_pixmap(ctx, pixmap, degrees, border);
+	fz_catch(ctx)
+		rethrow(J);
+
+	ffi_pushpixmap(J, dest);
+}
+
 static void ffi_Pixmap_asPNG(js_State *J)
 {
 	fz_context *ctx = js_getcontext(J);
@@ -4424,6 +4462,60 @@ static void ffi_Pixmap_asPNG(js_State *J)
 		rethrow(J);
 
 	ffi_pushbuffer(J, buf);
+}
+
+static void ffi_Pixmap_autowarp(js_State *J)
+{
+	fz_context *ctx = js_getcontext(J);
+	fz_pixmap *pixmap = js_touserdata(J, 0, "fz_pixmap");
+	/* 1 = array of 8 floats for points */
+	fz_pixmap *dest = NULL;
+	fz_point points[4];
+	int i;
+
+	if (!js_isarray(J, 1) || js_getlength(J, 1) != 8)
+		js_throw(J);
+
+	for (i = 0; i < 8; i++)
+	{
+		float *f = i&1 ? &points[i>>1].y : &points[i>>1].x;
+		js_getindex(J, 1, i);
+		*f = js_tonumber(J, -1);
+		js_pop(J, 1);
+	}
+
+	fz_try(ctx)
+		dest = fz_autowarp_pixmap(ctx, pixmap, points);
+	fz_catch(ctx)
+		rethrow(J);
+
+	ffi_pushpixmap(J, dest);
+}
+
+static void ffi_Pixmap_detect_document(js_State *J)
+{
+	fz_context *ctx = js_getcontext(J);
+	fz_pixmap *pixmap = js_touserdata(J, 0, "fz_pixmap");
+	fz_point points[4];
+	int i, found;
+
+	fz_try(ctx)
+		found = fz_detect_document(ctx, &points[0], pixmap);
+	fz_catch(ctx)
+		rethrow(J);
+
+	if (found)
+	{
+		js_newarray(J);
+		for (i = 0; i < 8; ++i) {
+			js_pushnumber(J, i&1 ? points[i>>1].y : points[i>>1].x);
+			js_setindex(J, -2, (int)i);
+		}
+	} else {
+		/* Do nothing and Javascript will put undefined.
+		 * Apparently this is the kind of thing Javascript
+		 * does. */
+	}
 }
 
 static void ffi_Pixmap_saveAsPNG(js_State *J)
@@ -6343,7 +6435,7 @@ static void ffi_pushembeddedfileparams(js_State *J, pdf_embedded_file_params *pa
 	js_setproperty(J, -2, "modificationDate");
 }
 
-static void ffi_PDFDocument_getEmbeddedFileParams(js_State *J)
+static void ffi_PDFDocument_getFilespecParams(js_State *J)
 {
 	fz_context *ctx = js_getcontext(J);
 	pdf_document *pdf = js_touserdata(J, 0, "pdf_document");
@@ -6358,6 +6450,11 @@ static void ffi_PDFDocument_getEmbeddedFileParams(js_State *J)
 		rethrow(J);
 
 	ffi_pushembeddedfileparams(J, &params);
+}
+
+static void ffi_PDFDocument_getEmbeddedFileParams(js_State *J)
+{
+	ffi_PDFDocument_getFilespecParams(J);
 }
 
 static void ffi_PDFDocument_getEmbeddedFileContents(js_State *J)
@@ -7145,6 +7242,28 @@ static void ffi_PDFDocument_redo(js_State *J)
 		rethrow(J);
 }
 
+static void ffi_PDFDocument_saveJournal(js_State *J)
+{
+	fz_context *ctx = js_getcontext(J);
+	pdf_document *pdf = js_touserdata(J, 0, "pdf_document");
+	const char *filename = js_tostring(J, 1);
+	fz_output *out = NULL;
+
+	fz_var(out);
+
+	fz_try(ctx)
+	{
+		out = fz_new_output_with_path(ctx, filename, 0);
+		pdf_write_journal(ctx, pdf, out);
+		fz_close_output(ctx, out);
+	}
+	fz_always(ctx)
+		fz_drop_output(ctx, out);
+	fz_catch(ctx)
+		rethrow(J);
+}
+
+
 static void ffi_PDFDocument_setPageLabels(js_State *J)
 {
 	fz_context *ctx = js_getcontext(J);
@@ -7168,6 +7287,68 @@ static void ffi_PDFDocument_deletePageLabels(js_State *J)
 		pdf_delete_page_labels(ctx, pdf, index);
 	fz_catch(ctx)
 		rethrow(J);
+}
+
+static void ffi_PDFDocument_countAssociatedFiles(js_State *J)
+{
+	fz_context *ctx = js_getcontext(J);
+	pdf_document *pdf = js_touserdata(J, 0, "pdf_document");
+	int n;
+	fz_try(ctx)
+		n = pdf_count_document_associated_files(ctx, pdf);
+	fz_catch(ctx)
+		rethrow(J);
+	js_pushnumber(J, n);
+}
+
+static void ffi_PDFDocument_associatedFile(js_State *J)
+{
+	fz_context *ctx = js_getcontext(J);
+	pdf_document *pdf = js_touserdata(J, 0, "pdf_document");
+	int idx = js_tointeger(J, 1);
+	pdf_obj *obj;
+	fz_try(ctx)
+		obj = pdf_document_associated_file(ctx, pdf, idx);
+	fz_catch(ctx)
+		rethrow(J);
+	ffi_pushobj(J, obj);
+}
+
+static void ffi_PDFDocument_zugferdProfile(js_State *J)
+{
+	fz_context *ctx = js_getcontext(J);
+	pdf_document *pdf = js_touserdata(J, 0, "pdf_document");
+	enum pdf_zugferd_profile profile;
+	float version;
+	fz_try(ctx)
+		profile = pdf_zugferd_profile(ctx, pdf, &version);
+	fz_catch(ctx)
+		rethrow(J);
+	js_pushstring(J, pdf_zugferd_profile_to_string(ctx, profile));
+}
+
+static void ffi_PDFDocument_zugferdVersion(js_State *J)
+{
+	fz_context *ctx = js_getcontext(J);
+	pdf_document *pdf = js_touserdata(J, 0, "pdf_document");
+	float version;
+	fz_try(ctx)
+		(void)pdf_zugferd_profile(ctx, pdf, &version);
+	fz_catch(ctx)
+		rethrow(J);
+	js_pushnumber(J, version);
+}
+
+static void ffi_PDFDocument_zugferdXML(js_State *J)
+{
+	fz_context *ctx = js_getcontext(J);
+	pdf_document *pdf = js_touserdata(J, 0, "pdf_document");
+	fz_buffer *buf;
+	fz_try(ctx)
+		buf = pdf_zugferd_xml(ctx, pdf);
+	fz_catch(ctx)
+		rethrow(J);
+	ffi_pushbuffer(J, buf);
 }
 
 static void ffi_appendDestToURI(js_State *J)
@@ -7508,6 +7689,18 @@ static void ffi_PDFObject_isIndirect(js_State *J)
 	js_pushboolean(J, b);
 }
 
+static void ffi_PDFObject_isInteger(js_State *J)
+{
+	fz_context *ctx = js_getcontext(J);
+	pdf_obj *obj = js_touserdata(J, 0, "pdf_obj");
+	int b = 0;
+	fz_try(ctx)
+		b = pdf_is_int(ctx, obj);
+	fz_catch(ctx)
+		rethrow(J);
+	js_pushboolean(J, b);
+}
+
 static void ffi_PDFObject_asIndirect(js_State *J)
 {
 	fz_context *ctx = js_getcontext(J);
@@ -7605,6 +7798,18 @@ static void ffi_PDFObject_asName(js_State *J)
 	fz_catch(ctx)
 		rethrow(J);
 	js_pushstring(J, name);
+}
+
+static void ffi_PDFObject_isReal(js_State *J)
+{
+	fz_context *ctx = js_getcontext(J);
+	pdf_obj *obj = js_touserdata(J, 0, "pdf_obj");
+	int b = 0;
+	fz_try(ctx)
+		b = pdf_is_real(ctx, obj);
+	fz_catch(ctx)
+		rethrow(J);
+	js_pushboolean(J, b);
 }
 
 static void ffi_PDFObject_isString(js_State *J)
@@ -7800,6 +8005,18 @@ static void ffi_PDFObject_compare(js_State *J)
 	js_pushboolean(J, result);
 }
 
+static void ffi_PDFObject_isFilespec(js_State *J)
+{
+	fz_context *ctx = js_getcontext(J);
+	pdf_obj *obj = js_touserdata(J, 0, "pdf_obj");
+	int b = 0;
+	fz_try(ctx)
+		b = pdf_is_filespec(ctx, obj);
+	fz_catch(ctx)
+		rethrow(J);
+	js_pushboolean(J, b);
+}
+
 static void ffi_PDFPage_getObject(js_State *J)
 {
 	fz_context *ctx = js_getcontext(J);
@@ -7887,6 +8104,21 @@ static void ffi_PDFPage_deleteAnnotation(js_State *J)
 		pdf_delete_annot(ctx, page, annot);
 	fz_catch(ctx)
 		rethrow(J);
+}
+
+static void ffi_PDFPage_createSignature(js_State *J)
+{
+	fz_context *ctx = js_getcontext(J);
+	pdf_page *page = js_touserdata(J, 0, "pdf_page");
+	const char *name = js_tostring(J, 1);
+	pdf_annot *widget;
+
+	fz_try(ctx)
+		widget = pdf_create_signature_widget(ctx, page, (char *) name);
+	fz_catch(ctx)
+		rethrow(J);
+	js_getregistry(J, "pdf_widget");
+	js_newuserdata(J, "pdf_widget", widget, ffi_gc_pdf_annot);
 }
 
 static void ffi_PDFPage_update(js_State *J)
@@ -7997,6 +8229,30 @@ static void ffi_PDFPage_setPageBox(js_State *J)
 		rethrow(J);
 }
 
+static void ffi_PDFPage_countAssociatedFiles(js_State *J)
+{
+	fz_context *ctx = js_getcontext(J);
+	pdf_page *pdf = js_touserdata(J, 0, "pdf_page");
+	int n;
+	fz_try(ctx)
+		n = pdf_count_page_associated_files(ctx, pdf);
+	fz_catch(ctx)
+		rethrow(J);
+	js_pushnumber(J, n);
+}
+
+static void ffi_PDFPage_associatedFile(js_State *J)
+{
+	fz_context *ctx = js_getcontext(J);
+	pdf_page *pdf = js_touserdata(J, 0, "pdf_page");
+	int idx = js_tointeger(J, 1);
+	pdf_obj *obj;
+	fz_try(ctx)
+		obj = pdf_page_associated_file(ctx, pdf, idx);
+	fz_catch(ctx)
+		rethrow(J);
+	ffi_pushobj(J, obj);
+}
 
 static void ffi_PDFAnnotation_getBounds(js_State *J)
 {
@@ -9246,9 +9502,7 @@ static void ffi_PDFAnnotation_setFilespec(js_State *J)
 {
 	fz_context *ctx = js_getcontext(J);
 	pdf_annot *annot = ffi_toannot(J, 0);
-	pdf_page *page = pdf_annot_page(ctx, annot);
-	pdf_document *pdf = page->doc;
-	pdf_obj *fs = ffi_toobj(J, pdf, 1);
+	pdf_obj *fs = js_touserdata(J, 1, "pdf_obj");
 
 	fz_try(ctx)
 		pdf_set_annot_filespec(ctx, annot, fs);
@@ -9439,6 +9693,66 @@ static void ffi_PDFAnnotation_setHiddenForEditing(js_State *J)
 
 	fz_try(ctx)
 		pdf_set_annot_hidden_for_editing(ctx, annot, hidden);
+	fz_catch(ctx)
+		rethrow(J);
+}
+
+static void ffi_PDFAnnotation_eventEnter(js_State *J)
+{
+	fz_context *ctx = js_getcontext(J);
+	pdf_annot *annot = js_touserdata(J, 0, "pdf_annot");
+	fz_try(ctx)
+		pdf_annot_event_enter(ctx, annot);
+	fz_catch(ctx)
+		rethrow(J);
+}
+
+static void ffi_PDFAnnotation_eventExit(js_State *J)
+{
+	fz_context *ctx = js_getcontext(J);
+	pdf_annot *annot = js_touserdata(J, 0, "pdf_annot");
+	fz_try(ctx)
+		pdf_annot_event_exit(ctx, annot);
+	fz_catch(ctx)
+		rethrow(J);
+}
+
+static void ffi_PDFAnnotation_eventDown(js_State *J)
+{
+	fz_context *ctx = js_getcontext(J);
+	pdf_annot *annot = js_touserdata(J, 0, "pdf_annot");
+	fz_try(ctx)
+		pdf_annot_event_down(ctx, annot);
+	fz_catch(ctx)
+		rethrow(J);
+}
+
+static void ffi_PDFAnnotation_eventUp(js_State *J)
+{
+	fz_context *ctx = js_getcontext(J);
+	pdf_annot *annot = js_touserdata(J, 0, "pdf_annot");
+	fz_try(ctx)
+		pdf_annot_event_up(ctx, annot);
+	fz_catch(ctx)
+		rethrow(J);
+}
+
+static void ffi_PDFAnnotation_eventFocus(js_State *J)
+{
+	fz_context *ctx = js_getcontext(J);
+	pdf_annot *annot = js_touserdata(J, 0, "pdf_annot");
+	fz_try(ctx)
+		pdf_annot_event_focus(ctx, annot);
+	fz_catch(ctx)
+		rethrow(J);
+}
+
+static void ffi_PDFAnnotation_eventBlur(js_State *J)
+{
+	fz_context *ctx = js_getcontext(J);
+	pdf_annot *annot = js_touserdata(J, 0, "pdf_annot");
+	fz_try(ctx)
+		pdf_annot_event_blur(ctx, annot);
 	fz_catch(ctx)
 		rethrow(J);
 }
@@ -9658,6 +9972,18 @@ static void ffi_PDFWidget_checkDigest(js_State *J)
 	js_pushstring(J, pdf_signature_error_description(val));
 }
 
+static void ffi_PDFWidget_incrementalChangesSinceSigning(js_State *J)
+{
+	fz_context *ctx = js_getcontext(J);
+	pdf_annot *widget = js_touserdata(J, 0, "pdf_widget");
+	int changed = 0;
+	fz_try(ctx)
+		changed = pdf_incremental_change_since_signing_widget(ctx, widget);
+	fz_catch(ctx)
+		rethrow(J);
+	js_pushboolean(J, changed);
+}
+
 static void ffi_PDFWidget_getSignatory(js_State *J)
 {
 	fz_context *ctx = js_getcontext(J);
@@ -9797,6 +10123,10 @@ static void ffi_PDFWidget_previewSignature(js_State *J)
 	fz_try(ctx) {
 		fz_rect rect = pdf_annot_rect(ctx, widget);
 		fz_text_language lang = pdf_annot_language(ctx, widget);
+
+		if (pdf_dict_get(ctx, pdf_annot_obj(ctx, widget), PDF_NAME(FT)) != PDF_NAME(Sig))
+			fz_throw(ctx, FZ_ERROR_GENERIC, "annotation is not a signature widget");
+
 		pixmap = pdf_preview_signature_as_pixmap(ctx,
 			rect.x1-rect.x0, rect.y1-rect.y0, lang,
 			signer,
@@ -10414,7 +10744,11 @@ int murun_main(int argc, char **argv)
 		jsB_propfun(J, "Pixmap.gamma", ffi_Pixmap_gamma, 1);
 		jsB_propfun(J, "Pixmap.tint", ffi_Pixmap_tint, 2);
 		jsB_propfun(J, "Pixmap.warp", ffi_Pixmap_warp, 3);
+		jsB_propfun(J, "Pixmap.skewDetect", ffi_Pixmap_skewDetect, 0);
+		jsB_propfun(J, "Pixmap.deskew", ffi_Pixmap_deskew, 2);
 		jsB_propfun(J, "Pixmap.convertToColorSpace", ffi_Pixmap_convertToColorSpace, 5);
+		jsB_propfun(J, "Pixmap.autowarp", ffi_Pixmap_autowarp, 1);
+		jsB_propfun(J, "Pixmap.detectdocument", ffi_Pixmap_detect_document, 0);
 
 		// Pixmap.getPixels() - Buffer
 		// Pixmap.scale()
@@ -10459,6 +10793,7 @@ int murun_main(int argc, char **argv)
 
 		jsB_propfun(J, "PDFDocument.addEmbeddedFile", ffi_PDFDocument_addEmbeddedFile, 6);
 		jsB_propfun(J, "PDFDocument.getEmbeddedFileParams", ffi_PDFDocument_getEmbeddedFileParams, 1);
+		jsB_propfun(J, "PDFDocument.getFilespecParams", ffi_PDFDocument_getFilespecParams, 1);
 		jsB_propfun(J, "PDFDocument.getEmbeddedFileContents", ffi_PDFDocument_getEmbeddedFileContents, 1);
 		jsB_propfun(J, "PDFDocument.verifyEmbeddedFileChecksum", ffi_PDFDocument_verifyEmbeddedFileChecksum, 1);
 
@@ -10511,9 +10846,16 @@ int murun_main(int argc, char **argv)
 		jsB_propfun(J, "PDFDocument.canRedo", ffi_PDFDocument_canRedo, 0);
 		jsB_propfun(J, "PDFDocument.undo", ffi_PDFDocument_undo, 0);
 		jsB_propfun(J, "PDFDocument.redo", ffi_PDFDocument_redo, 0);
+		jsB_propfun(J, "PDFDocument.saveJournal", ffi_PDFDocument_saveJournal, 1);
 
 		jsB_propfun(J, "PDFDocument.setPageLabels", ffi_PDFDocument_setPageLabels, 4);
 		jsB_propfun(J, "PDFDocument.deletePageLabels", ffi_PDFDocument_deletePageLabels, 1);
+
+		jsB_propfun(J, "PDFDocument.countAssociatedFiles", ffi_PDFDocument_countAssociatedFiles, 0);
+		jsB_propfun(J, "PDFDocument.associatedFile", ffi_PDFDocument_associatedFile, 1);
+		jsB_propfun(J, "PDFDocument.zugferdProfile", ffi_PDFDocument_zugferdProfile, 0);
+		jsB_propfun(J, "PDFDocument.zugferdVersion", ffi_PDFDocument_zugferdVersion, 0);
+		jsB_propfun(J, "PDFDocument.zugferdXml", ffi_PDFDocument_zugferdXML, 0);
 	}
 	js_setregistry(J, "pdf_document");
 
@@ -10525,12 +10867,15 @@ int murun_main(int argc, char **argv)
 		jsB_propfun(J, "PDFPage.getAnnotations", ffi_PDFPage_getAnnotations, 0);
 		jsB_propfun(J, "PDFPage.createAnnotation", ffi_PDFPage_createAnnotation, 1);
 		jsB_propfun(J, "PDFPage.deleteAnnotation", ffi_PDFPage_deleteAnnotation, 1);
+		jsB_propfun(J, "PDFPage.createSignature", ffi_PDFPage_createSignature, 0);
 		jsB_propfun(J, "PDFPage.update", ffi_PDFPage_update, 0);
 		jsB_propfun(J, "PDFPage.applyRedactions", ffi_PDFPage_applyRedactions, 4);
 		jsB_propfun(J, "PDFPage.process", ffi_PDFPage_process, 1);
 		jsB_propfun(J, "PDFPage.toPixmap", ffi_PDFPage_toPixmap, 6);
 		jsB_propfun(J, "PDFPage.getTransform", ffi_PDFPage_getTransform, 0);
 		jsB_propfun(J, "PDFPage.setPageBox", ffi_PDFPage_setPageBox, 2);
+		jsB_propfun(J, "PDFPage.countAssociatedFiles", ffi_PDFPage_countAssociatedFiles, 0);
+		jsB_propfun(J, "PDFPage.associatedFile", ffi_PDFPage_associatedFile, 1);
 	}
 	js_setregistry(J, "pdf_page");
 
@@ -10650,6 +10995,13 @@ int murun_main(int argc, char **argv)
 
 		jsB_propfun(J, "PDFAnnotation.getHiddenForEditing", ffi_PDFAnnotation_getHiddenForEditing, 0);
 		jsB_propfun(J, "PDFAnnotation.setHiddenForEditing", ffi_PDFAnnotation_setHiddenForEditing, 1);
+
+		jsB_propfun(J, "PDFAnnotation.eventEnter", ffi_PDFAnnotation_eventEnter, 0);
+		jsB_propfun(J, "PDFAnnotation.eventExit", ffi_PDFAnnotation_eventExit, 0);
+		jsB_propfun(J, "PDFAnnotation.eventDown", ffi_PDFAnnotation_eventDown, 0);
+		jsB_propfun(J, "PDFAnnotation.eventUp", ffi_PDFAnnotation_eventUp, 0);
+		jsB_propfun(J, "PDFAnnotation.eventFocus", ffi_PDFAnnotation_eventFocus, 0);
+		jsB_propfun(J, "PDFAnnotation.eventBlur", ffi_PDFAnnotation_eventBlur, 0);
 	}
 	js_setregistry(J, "pdf_annot");
 
@@ -10678,6 +11030,7 @@ int murun_main(int argc, char **argv)
 		jsB_propfun(J, "PDFWidget.validateSignature", ffi_PDFWidget_validateSignature, 0);
 		jsB_propfun(J, "PDFWidget.checkCertificate", ffi_PDFWidget_checkCertificate, 0);
 		jsB_propfun(J, "PDFWidget.checkDigest", ffi_PDFWidget_checkDigest, 0);
+		jsB_propfun(J, "PDFWidget.incrementalChangesSinceSigning", ffi_PDFWidget_incrementalChangesSinceSigning, 0);
 		jsB_propfun(J, "PDFWidget.getSignatory", ffi_PDFWidget_getSignatory, 0);
 		jsB_propfun(J, "PDFWidget.clearSignature", ffi_PDFWidget_clearSignature, 0);
 		jsB_propfun(J, "PDFWidget.sign", ffi_PDFWidget_sign, 5);
@@ -10710,6 +11063,7 @@ int murun_main(int argc, char **argv)
 		jsB_propfun(J, "PDFObject.isArray", ffi_PDFObject_isArray, 0);
 		jsB_propfun(J, "PDFObject.isDictionary", ffi_PDFObject_isDictionary, 0);
 		jsB_propfun(J, "PDFObject.isIndirect", ffi_PDFObject_isIndirect, 0);
+		jsB_propfun(J, "PDFObject.isInteger", ffi_PDFObject_isInteger, 0);
 		jsB_propfun(J, "PDFObject.asIndirect", ffi_PDFObject_asIndirect, 0);
 		jsB_propfun(J, "PDFObject.isNull", ffi_PDFObject_isNull, 0);
 		jsB_propfun(J, "PDFObject.isBoolean", ffi_PDFObject_isBoolean, 0);
@@ -10718,6 +11072,7 @@ int murun_main(int argc, char **argv)
 		jsB_propfun(J, "PDFObject.asNumber", ffi_PDFObject_asNumber, 0);
 		jsB_propfun(J, "PDFObject.isName", ffi_PDFObject_isName, 0);
 		jsB_propfun(J, "PDFObject.asName", ffi_PDFObject_asName, 0);
+		jsB_propfun(J, "PDFObject.isReal", ffi_PDFObject_isReal, 0);
 		jsB_propfun(J, "PDFObject.isString", ffi_PDFObject_isString, 0);
 		jsB_propfun(J, "PDFObject.asString", ffi_PDFObject_asString, 0);
 		jsB_propfun(J, "PDFObject.asByteString", ffi_PDFObject_asByteString, 0);
@@ -10729,6 +11084,7 @@ int murun_main(int argc, char **argv)
 		jsB_propfun(J, "PDFObject.writeRawStream", ffi_PDFObject_writeRawStream, 1);
 		jsB_propfun(J, "PDFObject.forEach", ffi_PDFObject_forEach, 1);
 		jsB_propfun(J, "PDFObject.compare", ffi_PDFObject_compare, 1);
+		jsB_propfun(J, "PDFObject.isFilespec", ffi_PDFObject_isFilespec, 0);
 	}
 	js_setregistry(J, "pdf_obj");
 
